@@ -78,8 +78,8 @@ matrices.computation = function(time_distance_mat, timed_tree, time_window, meta
     time_distance_mat_tmp = time_distance_mat[,i] 
     
     ## Filter branches alive at sampling time
-    t_min = metadata_tmp$time - wind
-    t_max = metadata_tmp$time + wind
+    t_min = metadata_tmp$time - time_window
+    t_max = metadata_tmp$time + time_window
     tmp = which((branches_times[,1] <= t_min & branches_times[,2] >= t_max) | ## branches alive, with no sampled individuals 
                   (branches_times[,1] <= t_min & (branches_times[,2] >= t_min & branches_times[,2] <= t_max)) | ## branches born before interval and died within interval
                   ((branches_times[,1] >= t_min & branches_times[,1] <= t_max) & branches_times[,2] >= t_max) | ## branches born in interval and died after interval
