@@ -1,3 +1,19 @@
+#.DS_Store
+.DS_Store
+
+#Data Files
+1_Data
+4_Output_Data
+
+#Output Files
+3_Output_Figures
+
+#Documentation
+5_Notes_and_Documentation
+
+#Session Data Caches
+6_Session_Data
+
 # History files
 .Rhistory
 .Rapp.history
@@ -47,3 +63,6 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+.Rproj.user
+
+
