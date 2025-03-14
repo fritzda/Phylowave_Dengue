@@ -1,0 +1,2644 @@
+---
+title: "Phylowave DENV"
+# Ref: from Noémie Lefrancq https://www.medrxiv.org/content/10.1101/2023.12.23.23300456v1.full
+# date: 2024-09-10
+output:
+  github_document:
+    toc: false
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Input
+
+## Load codes and DENV data
+
+#### Load index functions
+
+```{r, echo = F, eval=T}
+## Not printed, set directory
+#setwd('~/Dropbox/THD/Index_paper_methods_Sc2_H3N2_BP_TB/paper-index-fitness-dynamics-trees/')
+```
+
+First, source all the necessary functions:
+
+```{r, eval=T}
+source(file = '2_Functions/2_1_Index_computation_20240909.R')
+source(file = '2_Functions/2_2_Lineage_detection_20240909.R')
+source(file = '2_Functions/2_3_Lineage_fitness_20240909.R')
+
+# Function to extract the start of date ranges
+extract_start_date <- function(date_entry) {
+  # Check if the entry contains a range
+  if (str_detect(date_entry, "\\(")) {
+    # Extract the date before the '('
+    start_date <- str_extract(date_entry, "^[^\\s]+")
+  } else {
+    # It's a single date
+    start_date <- date_entry
+  }
+  
+  return(start_date)
+}
+
+
+#Reconstructs ancestral states (e.g., mutation presence/absence) along phylogenetic trees based on SNP data.
+
+reconstruct_node_states = function(tree, dataset_tips, dataset_with_nodes, min_prop, max_prop, names_seqs){
+  # Meta-data with nodes 
+  dataset_with_inferred_resonstruction = dataset_with_nodes[,1:4]
+  possible_snps = names(dataset_tips[,4:ncol(dataset_tips)])
+  
+  ## Filter SNP on frequency: only keep SNP that are present in:
+  ## >1% of dataset
+  ## <99% of dataset
+  prevalence = t(apply(dataset_tips[,4:ncol(dataset_tips)], MARGIN = 2, function(x)table(factor(x, levels = c("0", "1")))))
+  prevalence_prop = prevalence[,2]/(prevalence[,1]+prevalence[,2])
+  prevalence = cbind(prevalence, prevalence_prop)
+  possible_snps = names(which(prevalence[,3] >= min_prop & prevalence[,3] <= max_prop))
+  
+  ## Filter dataset_tips accordingly
+  a = which(is.na(match(colnames(dataset_tips), possible_snps)) == F)
+  dataset_tips = dataset_tips[,c(1:3, a)]
+  
+  print(paste0('Going though ', length(possible_snps), ' snps'))
+  k=1
+  for(i in possible_snps){
+    print(paste0(k, ' / ', length(possible_snps), ' snps'))
+    
+    snp_data = dataset_tips[,which(colnames(dataset_tips) == i)]
+    snp_data = as.factor(snp_data)
+    names(snp_data) = names_seqs
+    
+    ## Perform reconstruction for this position
+    # rec = phytools::fastAnc(tree = tree, x = snp_data, CI = TRUE, vars = T) ## factAnc lots faster than ace.ML
+    rec = ape::ace(phy = tree, x = snp_data, method = "pic")
+    rec_all = c(snp_data, rec$ace) ## List of all states: first all tips, then all nodes
+    
+    ## Find first state, to set it to 0, always
+    first_state = rec_all[which(dataset_with_inferred_resonstruction$ID == length(names_seqs) + 1)]
+    first_state = round(first_state, digits = 0)
+    
+    ## Write reconstruction in the big dataset
+    if(first_state < 1.5){ ## First state is 0: all good
+      dataset_with_inferred_resonstruction = cbind(dataset_with_inferred_resonstruction, rec_all - 1)     
+    }
+    if(first_state > 1.5){ ## First state is 1: have to change to 0
+      dataset_with_inferred_resonstruction = cbind(dataset_with_inferred_resonstruction,  2 - rec_all)
+    }
+    
+    ## Set column name to position name
+    colnames(dataset_with_inferred_resonstruction)[which(colnames(dataset_tips) == i) +1] = i
+    
+    k=k+1
+  }
+  return(list('dataset_with_inferred_resonstruction' = dataset_with_inferred_resonstruction,
+              'snp_prevalence' = prevalence,
+              'possible_snps' = possible_snps))
+}
+
+
+## SNP defining Mutations Function
+association_scores_per_group = function(dataset_with_nodes, dataset_with_inferred_reconstruction, tree, 
+                                        possible_snps, upstream_window, downstream_window){
+  ## Set list to store results
+  ## Extracts unique group names and initializes an empty list (scores) to store results for each group.
+  group_names = levels(as.factor(dataset_with_nodes$groups))
+  scores = as.list(rep(NA, length(group_names)-1))
+  n_tips = length(tree$tip.label)
+  
+  
+  
+  ## For each group (except the initial group, which is the root), look at snp association
+  for(j in 1:(length(group_names)-1)){ 
+    print(j)
+    
+    ## Find members of the group and MRCA
+    ## Identifies members of the current group and its MRCA. Ensures the MRCA is included in the list of members.
+    members = dataset_with_nodes$ID[which(dataset_with_nodes$groups == group_names[j])]
+    mrca = getMRCA(tree, dataset_with_nodes$name_seq[which(dataset_with_nodes$groups == group_names[j] & dataset_with_nodes$is.node == 'no')])
+    members = unique(c(members, mrca))
+    
+    ## Update members list, with strains downstream, within the time window
+    ## Identifies members of the current group and its MRCA. Ensures the MRCA is included in the list of members.
+    time_mrca = dataset_with_nodes$time[which(dataset_with_nodes$ID == mrca)] ## Reference time for window
+    # tmp = getDescendants(tree, mrca)
+    # tmp = tmp[which(dataset_with_nodes$time[tmp] < time_mrca + downstream_window)]
+    # members = unique(c(tmp, members))
+    
+    ## Update members list, with strains upstream, within the time window
+    ancest = Ancestors(x = tree, node = mrca, type = 'all')
+    time_ancest = dataset_with_nodes$time[ancest]
+    time_ancest[1] = time_mrca ## Always keep the first ancestor node
+    tmp = which(time_ancest < time_mrca - upstream_window)
+    if(length(tmp) > 0) ancest = ancest[-tmp]  ## Remove nodes that are outside the time window
+    if(length(ancest) == 0) ancest = Ancestors(x = tree, node = mrca, type = 'all')[1]
+    groups_ancest = dataset_with_nodes$groups[ancest]
+    gr = min(as.numeric(as.character(groups_ancest)))
+    ancest = ancest[which(groups_ancest == gr)] ## Makes sure we only have the directly ancestral group, not more
+    time_ancest = dataset_with_nodes$time[ancest]
+    
+    ## Branches of interest
+    branches = tree$edge
+    branches = branches[match(c(ancest, members), branches[,2]),] ## Take all tips, from ancests, members
+    tmp = which(is.na(match(branches[,1], c(ancest, members))))
+    if(length(tmp) > 0){  branches = branches[-tmp, ]} ## Remove nodes that are not in ancest or members
+    
+    ## Branches time
+    branches_time = branches
+    branches_time[,1] = dataset_with_nodes$time[branches[,1]]
+    branches_time[,2] = dataset_with_nodes$time[branches[,2]]
+    
+    ## Branches group (checked: ok)
+    branches_group = branches
+    branches_group[,1] = dataset_with_nodes$groups[branches[,1]]
+    branches_group[,2] = dataset_with_nodes$groups[branches[,2]]
+    
+    ## Make branch group matrix binary: 1=group of interest, 0=other group (eg ancestral)
+    branches_group[which(branches_group == j, arr.ind = T)] = 1
+    branches_group[which(branches_group > j, arr.ind = T)] = 0
+    
+    snps = time_diff = snps_props_within = snps_props_whole = names_possibles_snps = NULL
+    
+    ## Extracts SNP states for the start and end nodes of each branch for the current SNP.
+    for(i in 1:length(possible_snps)){
+      branches_snp = branches
+      branches_snp[,1] = dataset_with_inferred_reconstruction[branches[,1],
+                                                              which(colnames(dataset_with_inferred_reconstruction) == possible_snps[i])]
+      branches_snp[,2] = dataset_with_inferred_reconstruction[branches[,2],
+                                                              which(colnames(dataset_with_inferred_reconstruction) == possible_snps[i])]
+      
+      ancestral_state = branches_snp[which.min(branches[,1]),1]
+      
+      k=1
+      ancestral_state = branches_snp[which(branches[,1] == rev(ancest)[k]),1]
+      k=2
+      
+      ## Handles missing or ambiguous SNP states (n or X) by imputing them based on the ancestral state.
+      while(str_detect(ancestral_state, pattern = 'n|X') == T & k <= length(ancest)-1){
+        ancestral_state = branches_snp[which(branches[,1] == rev(ancest)[k]),1]
+        k=k+1
+      }
+      if(str_detect(ancestral_state, pattern = 'n|X') == T){
+        ancestral_state = branches_snp[which(branches[,1] == mrca),1][1]
+      }
+      
+      branches_snp[str_detect(branches_snp, pattern = 'n|X')] = ancestral_state
+      
+      ## Converts SNP states into a binary format indicating differences from the ancestral state. 
+      ## Calculates the association score (score3) for the SNP.
+      branches_snp_bin = (branches_snp!=ancestral_state)
+      
+      tmp = which(branches_group[,1] == 1 & branches_group[,2] == 1)
+      Px = as.numeric(branches_group[tmp,])
+      ## Px = 1 → If the branch belongs to the phylogenetic group.
+      ## Px = 0 → If the branch is outside the group.
+      Sx = as.numeric(branches_snp_bin[tmp,])
+      ## Sx = 1 → If the SNP is mutated at that position.
+      ##Sx = 0 → If the SNP retains the ancestral state.
+      score3 <- (sum((1 - Px)*(1 - Sx), na.rm=TRUE) + sum(Px*Sx, na.rm=TRUE)) / length(Px)
+      ## Px: Presence/absence of the phylogenetic group.
+      ## Sx: Presence/absence of the SNP.
+      ## score3: Measures how well the mutation segregates within the group 
+      ## (higher values suggest stronger association).
+      ## Entries where the score is 1 indicate a perfect association (mutation is fully linked with the group).
+      
+      scores[[j]][i] = score3
+      
+      t = table(branches_snp)
+      t = t[which(names(t) != ancestral_state)]
+      t = t[which.max(t)]
+      names_possibles_snps = c(names_possibles_snps, paste0(ancestral_state, '|', possible_snps[i], '|', names(t)))
+    }
+    scores[[j]] = scores[[j]]#- median(scores[[j]])
+    names(scores[[j]]) = names_possibles_snps
+    ## Each entry for a group has both a name and a value:
+    ## A name that follows the pattern "X|Y|Z", which corresponds to:
+      ## X: Ancestral state (e.g., 0).
+      ## Y: SNP position index (e.g., 1, 2, 3, ...).
+      ## Z: Derived state (present for some SNPs, missing for others).
+    ## A value that represents a computed score for SNP association
+    
+    ## For example, in 1.06490532281936|15|1 - Value 1 
+    ## The score is 1.06490532281936 (a high association score)
+    ## 15 is the SNP position
+    ## 1 is the derived state (different from the ancestral state 0)
+    ## Value of 1 Suggests Linieage defining mutaiton
+    ## As compared to 0.0642177183586905|136|0 - Value 1
+    
+  }
+  return(scores)
+  ## calculate association scores between SNPs and phylogenetic groups, considering evolutionary and temporal relationships.
+  ## The scores quantify how well specific SNPs distinguish groups of nodes/tips in the tree.
+}
+head(scores_DENV1_thai[[7]], 1)
+glimpse(scores_DENV1_thai[[7]])
+
+```
+
+**For the association scores:**
+
+`score3 <- (sum((1 - Px)*(1 - Sx), na.rm=TRUE) + sum(Px*Sx, na.rm=TRUE)) / length(Px)`
+
+$$
+\text{score3} = \frac{\sum (1 - P_x)(1 - S_x) + \sum P_x S_x}{\text{length}(P_x)}
+$$
+
+**First term: `sum((1 - Px) * (1 - Sx))`**
+
+-   Counts cases where **neither** the group nor the SNP mutation is
+    present
+
+**Second term: `sum(Px * Sx)`**
+
+-   Counts cases where **both** the group and the SNP mutation are
+    present.
+
+**Denominator: `length(Px)`**
+
+-   Normalizes by the number of branches considered.
+
+##### **What Does `score3` Represent?**
+
+-   If **score = 1** → **Perfect association** (mutation occurs
+    exclusively within the group).
+
+-   If **score = 0** → No association (mutation occurs randomly outside
+    the group).
+
+-   Intermediate values (e.g., `0.5`) → Partial association (mutation is
+    somewhat linked to the group).
+
+### Load necessary packages
+
+```{r, echo = T, eval=T, , results = 'hide', warning=FALSE, message=FALSE}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("ggtree")
+
+# install.packages("remotes")
+# remotes::install_github(repo = "stan-dev/cmdstanr")
+
+library(ape, quiet = T); library(phytools, quiet = T); library(stringr, quiet = T)
+library(MetBrewer, quiet = T); library(parallel, quiet = T); library(mgcv, quiet = T)
+library(cowplot, quiet = T); library(ggplot2, quiet = T); library(ggtree, quiet = T);
+library(cmdstanr, quiet = T); library(binom, quiet = T); library(plotly) ; library(DescTools); 
+library(readr, quiet = T); library(glue, quiet = T)
+library(grid)
+library(png)
+library(vcfR)
+library(reticulate)
+library(tidyverse)
+library(foreach)
+```
+
+```{r debug area, eval = FALSE}
+# names_seqs = data.frame(tree_DENV$tip.label)
+# colnames(names_seqs) = c("strain")
+# 
+# matched_data <- names_seqs %>%
+#   left_join(metadata %>% select(strain, start_date), by = "strain")
+# times_seqs <- matched_data$start_date
+# 
+# times_seqs = data.frame(times_seqs)
+
+# times_seqs <- data.frame(metadata$start_date)
+# 
+# times_seqs <- times_seqs$metadata.start_date
+# 
+# any(is.na(matched_indices)) #Should be false
+# names_seqs[is.na(matched_indices)]  # Sequences without a match
+# metadata$strain[is.na(matched_indices)]  # Strains without a match
+# summary(metadata)
+# summary(dataset_with_nodes)
+
+#tip_matches <- grep("8546/93DEN2", tree_DENV$tip.label, value = TRUE)
+#node_matches <- grep("8546/93DEN2", tree_DENV$node.label, value = TRUE)
+
+
+```
+
+### Name code format
+
+"year.decimal_location_clade_id/suffix"
+
+For example: "1994.019_BKK_3II_00092/94"
+
+-   Year + Decimal: 1994.019
+-   Location: BKK \*\* Bangkok (BKK), Kamphaeng Phet. (KPP) and
+    Ratchaburi (RTB)
+-   Clade: 3II
+-   ID?: 00092
+-   Year Suffix: 94
+
+#### Load data
+
+Load the tree, in which all the tip name include: collection time,
+location and Pango lineage
+
+#The code here is very inffeciient, copying the lines for each
+DENV3,2,1, and 4 but I've coppied it so that you can easily make changes
+outside of something like a loop
+
+```{r, eval=T}
+
+# 
+# #Tree had entries that messed with the nexus syntax: eg "(<names>)", ":", "," "-" in names have to be removed
+
+##Ape created tree from nexus
+tree_DENV3 = read.nexus("1_Data/1_5_DENV/best_tree_d3_Lin.nexus")
+tree_DENV2 = read.nexus("1_Data/1_5_DENV/best_tree_d2_Lin.nexus")
+tree_DENV1 = read.nexus("1_Data/1_5_DENV/best_tree_d1_Lin.nexus")
+tree_DENV4 = read.nexus("1_Data/1_5_DENV/best_tree_d4_Lin.nexus")
+
+## Make sure the tree is binary, and ladderized
+tree_DENV3 = collapse.singles(ladderize(multi2di(tree_DENV3, random = F), right = F))
+tree_DENV2 = collapse.singles(ladderize(multi2di(tree_DENV2, random = F), right = F))
+tree_DENV1 = collapse.singles(ladderize(multi2di(tree_DENV1, random = F), right = F))
+tree_DENV4 = collapse.singles(ladderize(multi2di(tree_DENV4, random = F), right = F))
+
+##Some trees have numeric isolates, those will look like nodes to the model and will throw warnings.
+##data cleaning: retrieve all the number only samples
+#numeric_labels <- grep("^[0-9]+$", tree_DENV$tip.label, value = TRUE)
+
+# Add I (Isolate) to the front of them
+#tree_DENV$tip.label[tree_DENV$tip.label %in% numeric_labels] <- paste0("I", numeric_labels)
+
+## Names all sequences
+names_seqs_3 = tree_DENV3$tip.label
+n_seq_3 = length(names_seqs_3)
+
+names_seqs_2 = tree_DENV2$tip.label
+n_seq_2 = length(names_seqs_2)
+
+names_seqs_1 = tree_DENV1$tip.label
+n_seq_1 = length(names_seqs_1)
+
+names_seqs_4 = tree_DENV4$tip.label
+n_seq_4 = length(names_seqs_4)
+
+
+## Collection times of all sequences
+times_seqs_3 = as.numeric(sapply(names_seqs_3, function(x) str_split(x, pattern = '_')[[1]][1]))
+times_seqs_2 = as.numeric(sapply(names_seqs_2, function(x) str_split(x, pattern = '_')[[1]][1]))
+times_seqs_1 = as.numeric(sapply(names_seqs_1, function(x) str_split(x, pattern = '_')[[1]][1]))
+times_seqs_4 = as.numeric(sapply(names_seqs_4, function(x) str_split(x, pattern = '_')[[1]][1]))
+
+## Nextstrain clades of all sequences
+clades_seqs_3 = sapply(names_seqs_3, function(x) str_split(x, pattern = '_')[[1]][3])
+clades_seqs_2 = sapply(names_seqs_2, function(x) str_split(x, pattern = '_')[[1]][3])
+clades_seqs_1 = sapply(names_seqs_1, function(x) str_split(x, pattern = '_')[[1]][3])
+clades_seqs_4 = sapply(names_seqs_4, function(x) str_split(x, pattern = '_')[[1]][3])
+
+
+
+```
+
+## Compute the index dynamics
+
+To compute the index of all nodes, use the function *compute.index*, you
+will need different inputs:
+
+1.  Data:
+    -   the *timed_tree*
+    -   *metadata* dataframe (see below the details of the
+        *dataset_with_nodes*)
+    -   *distance matrix*: can be computed from the timed tree with the
+        function *dist.nodes.with.names*
+2.  Information on the pathogen genome (these are pathogen specific):
+    -   The genome length of the pathogen considered: *genome_length*
+        (in bp).
+    -   The mutation rate of the pathogen considered: *mutation_rate*
+        (in bp/genome/year), an average is fine.
+3.  Index parameters (these are both pathogen-specific and
+    dataset-specific):
+    -   The timescale: *timescale* (in years), this will be used to
+        compute the bandwidth, see more details below.
+    -   Window of time on which to search for samples in the population:
+        *wind*, see more details below.
+
+The function outputs a vector containing the index of each node
+(internal and terminal).
+
+**timescale**: The timescale determines the kernel which enables to
+track lineage emergence dynamically, focusing on short distances between
+nodes (containing information about recent population dynamics) rather
+than long distances (containing information about past evolution). The
+timescale is tailored to the specific pathogen studied and its choice
+depends on the molecular signal, as well as the transmission rate. In
+the study, we used timescales ranging from months (typical of RNA
+viruses) to years (typical of bacteria). To determine a timescale
+suitable for your dataset, we recommend thinking about the generation
+time of the pathogen considered, its mutation rate, and the amount of
+diversity already accumulated. For example, at the time of the analysis,
+SARS-CoV-2 was a new pathogen, spreading quickly and accumulating
+diversity at a rate of \~2 mutations per month. Therefore, a small
+timescale of less than a year chosen (0.15 years). On the contrary,
+*Mycobacterium tuberculosis* is an older and relatively slowly spreading
+pathogen, which accumulates mutations at a rate of \~0.2 mutation per
+year. A much larger timescale was then chosen (30 years), to reflect
+this. Ultimately, the best timescale is one that maximises the
+visualisation of population dynamics. We recommend trying different
+values.
+
+**wind**: The choice of *wind* will depend on the sampling intensity of
+the dataset. It defines the window of time around each node on which to
+search for samples in the population. Ultimately it smooths the index
+dynamics. As a mean of example, for SARS-CoV-2, we set *wind* to 15
+days, as the dataset was intensely sampled. But for *Bordetella
+pertussis*, which is more sparsely sampled, we chose a *wind* of 1 year.
+If *wind* is too large, then all the nodes are considered to be part of
+the same time window. If *wind* is too small, then only the nodes in
+direct proximity of the node of interest will be considered in the time
+window, which can result in noisy index dynamics. We recommend choosing
+a *wind* value that enables to span multiple sampling times, for example
+if you have samples and nodes every week, you may choose a *wind* of
+\~1-2 months. If you have samples and nodes every year, you may choose a
+*wind* of \~2 years.
+
+### Set the index parameters.
+
+```{r, eval=T}
+## Length genome 
+genome_length = 11000 # reference  https://nextstrain.org/dengue/all/genome Could also just use 11kb or something highly specific
+## Mutation rate 
+mutation_rate = 7.6e-4
+  #7.6e-4 # mutation rate #ref https://pmc.ncbi.nlm.nih.gov/articles/PMC9030598/
+mutation_rate_sci <- formatC(mutation_rate, format = "e", digits = 2)
+## Parameters for the index
+timescale = 7 ## Timescale in years; raises index 
+## Window of time on which to search for samples in the population
+wind = 365 #days 
+wind = wind/365 #Wind smooths lines
+
+
+```
+
+#### Compute pairwise distance matrix
+
+Compute distance between each pair of sequences and internal nodes in
+the tree
+
+```{r, eval=T}
+genetic_distance_mat_3 = dist.nodes.with.names(tree_DENV3)
+genetic_distance_mat_2 = dist.nodes.with.names(tree_DENV2)
+genetic_distance_mat_1 = dist.nodes.with.names(tree_DENV1)
+genetic_distance_mat_4 = dist.nodes.with.names(tree_DENV4)
+```
+
+Get the time of each internal node
+
+```{r, eval=T}
+nroot_3 = length(tree_DENV3$tip.label) + 1 ## Root number
+distance_to_root_3 = genetic_distance_mat_3[nroot_3,]
+root_height_3 = times_seqs_3[which(names_seqs_3 == names(distance_to_root_3[1]))] - distance_to_root_3[1]
+nodes_height_3 = root_height_3 + distance_to_root_3[n_seq_3+(1:(n_seq_3-1))]
+
+nroot_2 = length(tree_DENV2$tip.label) + 1 ## Root number
+distance_to_root_2 = genetic_distance_mat_2[nroot_2,]
+root_height_2 = times_seqs_2[which(names_seqs_2 == names(distance_to_root_2[1]))] - distance_to_root_2[1]
+nodes_height_2 = root_height_2 + distance_to_root_2[n_seq_2+(1:(n_seq_2-1))]
+
+nroot_1 = length(tree_DENV1$tip.label) + 1 ## Root number
+distance_to_root_1 = genetic_distance_mat_1[nroot_1,]
+root_height_1 = times_seqs_1[which(names_seqs_1 == names(distance_to_root_1[1]))] - distance_to_root_1[1]
+nodes_height_1 = root_height_1 + distance_to_root_1[n_seq_1+(1:(n_seq_1-1))]
+
+
+nroot_4 = length(tree_DENV4$tip.label) + 1 ## Root number
+distance_to_root_4 = genetic_distance_mat_4[nroot_4,]
+root_height_4 = times_seqs_4[which(names_seqs_4 == names(distance_to_root_4[1]))] - distance_to_root_4[1]
+nodes_height_4 = root_height_4 + distance_to_root_4[n_seq_4+(1:(n_seq_4-1))]
+
+
+```
+
+#### Preparation data tips and nodes
+
+Prepare the main dataframe, where the index and lineages of all nodes
+(internal and terminal) are going to be stored.
+
+```{r, eval=T}
+# Meta-data with all nodes 
+dataset_with_nodes_3 = data.frame('ID' = c(1:n_seq_3, n_seq_3+(1:(n_seq_3-1))),
+                                'name_seq' = c(names_seqs_3, n_seq_3+(1:(n_seq_3-1))),
+                                'time' = c(times_seqs_3, nodes_height_3),
+                                'is.node' = c(rep('no', n_seq_3), rep('yes', (n_seq_3-1))),
+                                'clade' = c(clades_seqs_3, rep(NA, n_seq_3-1)))
+
+dataset_with_nodes_2 = data.frame('ID' = c(1:n_seq_2, n_seq_2+(1:(n_seq_2-1))),
+                                'name_seq' = c(names_seqs_2, n_seq_2+(1:(n_seq_2-1))),
+                                'time' = c(times_seqs_2, nodes_height_2),
+                                'is.node' = c(rep('no', n_seq_2), rep('yes', (n_seq_2-1))),
+                                'clade' = c(clades_seqs_2, rep(NA, n_seq_2-1)))
+
+dataset_with_nodes_1 = data.frame('ID' = c(1:n_seq_1, n_seq_1+(1:(n_seq_1-1))),
+                                'name_seq' = c(names_seqs_1, n_seq_1+(1:(n_seq_1-1))),
+                                'time' = c(times_seqs_1, nodes_height_1),
+                                'is.node' = c(rep('no', n_seq_1), rep('yes', (n_seq_1-1))),
+                                'clade' = c(clades_seqs_1, rep(NA, n_seq_1-1)))
+
+dataset_with_nodes_4 = data.frame('ID' = c(1:n_seq_4, n_seq_4+(1:(n_seq_4-1))),
+                                'name_seq' = c(names_seqs_4, n_seq_4+(1:(n_seq_4-1))),
+                                'time' = c(times_seqs_4, nodes_height_4),
+                                'is.node' = c(rep('no', n_seq_4), rep('yes', (n_seq_4-1))),
+                                'clade' = c(clades_seqs_4, rep(NA, n_seq_4-1)))
+
+# 
+#                                 'serotype' = c(serotype_seqs, rep(NA, n_seq-1)))
+
+# Maybe add serotype once it works?
+```
+
+#### Compute index of every tip and node
+
+```{r, eval=T}
+# debug(compute.index)
+dataset_with_nodes_3$index = compute.index(time_distance_mat = genetic_distance_mat_3, 
+                                         timed_tree = tree_DENV3, 
+                                         time_window = wind,
+                                         metadata = dataset_with_nodes_3, 
+                                         mutation_rate = mutation_rate,
+                                         timescale = timescale,
+                                         genome_length = genome_length)
+
+dataset_with_nodes_2$index = compute.index(time_distance_mat = genetic_distance_mat_2, 
+                                         timed_tree = tree_DENV2, 
+                                         time_window = wind,
+                                         metadata = dataset_with_nodes_2, 
+                                         mutation_rate = mutation_rate,
+                                         timescale = timescale,
+                                         genome_length = genome_length)
+
+
+dataset_with_nodes_1$index = compute.index(time_distance_mat = genetic_distance_mat_1, 
+                                         timed_tree = tree_DENV1, 
+                                         time_window = wind,
+                                         metadata = dataset_with_nodes_1, 
+                                         mutation_rate = mutation_rate,
+                                         timescale = timescale,
+                                         genome_length = genome_length)
+
+dataset_with_nodes_4$index = compute.index(time_distance_mat = genetic_distance_mat_4, 
+                                         timed_tree = tree_DENV4, 
+                                         time_window = wind,
+                                         metadata = dataset_with_nodes_4, 
+                                         mutation_rate = mutation_rate,
+                                         timescale = timescale,
+                                         genome_length = genome_length)
+
+```
+
+#### Plot tree & index below, with colors from clades
+
+First, generate the color key, based on the Nextstrain clade of each
+sequence.
+
+```{r, eval=T}
+###DEVN3
+## Color key for Nextstrain clades
+colors_clade_3 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_3$clade))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_3$clade_color = as.factor(dataset_with_nodes_3$clade)
+clade_labels_3 = levels(dataset_with_nodes_3$clade_color)
+levels(dataset_with_nodes_3$clade_color) = colors_clade_3
+dataset_with_nodes_3$clade_color = as.character(dataset_with_nodes_3$clade_color)
+
+###DENV2
+## Color key for Nextstrain clades
+colors_clade_2 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_2$clade))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_2$clade_color = as.factor(dataset_with_nodes_2$clade)
+clade_labels_2 = levels(dataset_with_nodes_2$clade_color)
+levels(dataset_with_nodes_2$clade_color) = colors_clade_2
+dataset_with_nodes_2$clade_color = as.character(dataset_with_nodes_2$clade_color)
+
+###DENV1
+## Color key for Nextstrain clades
+colors_clade_1 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_1$clade))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_1$clade_color = as.factor(dataset_with_nodes_1$clade)
+clade_labels_1 = levels(dataset_with_nodes_1$clade_color)
+levels(dataset_with_nodes_1$clade_color) = colors_clade_1
+dataset_with_nodes_1$clade_color = as.character(dataset_with_nodes_1$clade_color)
+
+
+###DENV4
+## Color key for Nextstrain clades
+colors_clade_4 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_4$clade))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_4$clade_color = as.factor(dataset_with_nodes_4$clade)
+clade_labels_4 = levels(dataset_with_nodes_4$clade_color)
+levels(dataset_with_nodes_4$clade_color) = colors_clade_4
+dataset_with_nodes_4$clade_color = as.character(dataset_with_nodes_4$clade_color)
+
+
+
+```
+
+Then plot the tree and index: DENV3
+
+```{r, eval=T}
+par(mfrow = c(2,1), oma = c(0,0,0,0), mar = c(4,4,0,0))
+
+#Denv3 data ranges from 1965 to 2014
+min_year = 1992
+max_year = 2015
+
+## Tree
+plot(tree_DENV3, show.tip.label = FALSE, 
+     edge.color = 'grey', edge.width = 0.25,
+     x.lim = c(min_year, max_year)-root_height_3)
+tiplabels(pch = 16, col = dataset_with_nodes_3$clade_color, cex = 0.3)
+axisPhylo_NL(side = 1, root.time = root_height_3, backward = F,
+             at_axis = seq(min_year, max_year, 0.5)-root_height_3,
+             lab_axis = seq(min_year, max_year, 0.5), lwd = 0.5)
+
+## Index
+plot(dataset_with_nodes_3$time, 
+     dataset_with_nodes_3$index, 
+     col = adjustcolor(dataset_with_nodes_3$clade_color, alpha.f = 1),
+     bty = 'n', xlim = c(min_year, max_year), cex = 0.4,
+     pch = 16, bty = 'n', ylim = c(0, 1), 
+     ylab = 'Index', xlab = 'Time (years)', xaxt = 'n', yaxt = 'n',
+     )
+title(main = paste0(
+  "Genome Length: ", genome_length, " bp\n",
+  "Mutation Rate: ", mutation_rate_sci, "\n",
+  "Timescale: ", timescale, " years \n",
+  "Window: ", round(wind, 2), " years"
+), line = -2.9, adj = 0, cex.main = 0.8, col.main = "grey")
+axis(2, las = 2, lwd = 0.5)
+axis(1, lwd = 0.5)
+
+# Color key
+legend('topright', 
+       legend = clade_labels_3,
+       fill = colors_clade_3, border = colors_clade_3,
+       cex = 0.5, bty = 'n', ncol = 5)
+```
+
+Dynamically
+
+```{r}
+for (i in 1:4) {
+  
+# Retrieve relevant variables
+  tree <- get(paste0('tree_DENV', i))
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  root_height <- get(paste0('root_height_', i))
+  clade_labels <- get(paste0('clade_labels_', i))
+  colors_clade <- get(paste0('colors_clade_', i))
+  
+  # Define global plot parameters
+  min_year <- 1975
+  max_year <- 2015
+  
+  # Two-panel plot setup
+  png(filename = paste0("3_Outputs/","Classical_Clades_panel_plot_DENV_", i, ".png"), width = 1800, height = 1800, res = 300)
+  par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+  
+  ## Tree plot
+  plot(tree, show.tip.label = FALSE, 
+       edge.color = 'grey', edge.width = 0.25,
+       x.lim = c(min_year, max_year) - root_height)
+  tiplabels(pch = 16, col = dataset_with_nodes$clade_color, cex = 0.3)
+  axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+               at_axis = seq(min_year, max_year, 0.5) - root_height,
+               lab_axis = seq(min_year, max_year, 0.5), lwd = 0.5)
+  
+  ## Index plot
+  plot(dataset_with_nodes$time, 
+       dataset_with_nodes$index, 
+       col = adjustcolor(dataset_with_nodes$clade_color, alpha.f = 1),
+       bty = 'n', xlim = c(min_year, max_year), cex = 0.4,
+       pch = 16, ylim = c(0, 1), 
+       ylab = 'Index', xlab = 'Time (years)', xaxt = 'n', yaxt = 'n')
+  
+  title(main = paste0(
+    "Genome Length: ", genome_length, " bp\n",
+    "Mutation Rate: ", mutation_rate_sci, "\n",
+    "Timescale: ", timescale, " years \n",
+    "Window: ", round(wind, 2), " years"
+  ), line = -2.9, adj = 0, cex.main = 0.8, col.main = "grey")
+  
+  axis(2, las = 2, lwd = 0.5)
+  axis(1, lwd = 0.5)
+  
+  # Color key
+  legend('topright', 
+         legend = clade_labels,
+         fill = colors_clade, border = colors_clade,
+         cex = 0.5, bty = 'n', ncol = 5)
+  
+  
+  # Save the plot as PNG
+  
+  dev.off()
+}
+
+```
+
+DON'T RUN: ggplot verison: needs work!
+
+```{r, eval=FALSE}
+for (i in 1:4) {
+  # Retrieve relevant variables
+  tree <- get(paste0('tree_DENV', i))
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  root_height <- get(paste0('root_height_', i))
+  clade_labels <- get(paste0('clade_labels_', i))
+  colors_clade <- get(paste0('colors_clade_', i))
+  
+  # Define global plot parameters
+  min_year <- 1992
+  max_year <- 2015
+  
+  ## Tree plot with ggtree
+  tree_plot <- ggtree(tree, size = 0.25) +
+    geom_tiplab(size = 2, aes(color = dataset_with_nodes$clade_color)) +
+    scale_color_manual(values = unique(dataset_with_nodes$clade_color)) +
+    theme_tree2() +
+    labs(title = paste0("Tree Plot for DENV_", i))
+  
+  ## Index plot with ggplot
+  index_plot <- ggplot(dataset_with_nodes, aes(x = time, y = index, color = clade_color)) +
+    geom_point(size = 1.5, alpha = 0.7) +
+    scale_color_manual(values = unique(dataset_with_nodes$clade_color)) +
+    theme_minimal() +
+    xlim(min_year, max_year) +
+    ylim(0, 1) +
+    labs(
+      x = "Time (years)",
+      y = "Index",
+      title = paste0(
+        "Genome Length: ", genome_length, " bp\n",
+        "Mutation Rate: ", mutation_rate_sci, "\n",
+        "Timescale: ", timescale, " years \n",
+        "Window: ", round(wind, 2), " years"
+      )
+    ) +
+    theme(
+      plot.title = element_text(size = 10, hjust = 0, color = "grey"),
+      legend.position = "none"
+    )
+  
+  # Combine the plots into a two-panel layout
+  combined_plot <- plot_grid(
+    tree_plot,
+    index_plot,
+    ncol = 1,
+    rel_heights = c(1, 1)
+  )
+  
+  # Save the combined plot
+  ggsave(
+    filename = paste0("two_panel_plot_DENV_", i, ".png"),
+    plot = combined_plot,
+    width = 8,
+    height = 10,
+    dpi = 300
+  )
+}
+
+```
+
+##Subplot comparison
+
+```{r subplot_comparison, eval=FALSE}
+# Define wind values (x-axis )
+wind_values <- seq(62, 730, length.out = 5) / 365  # Convert days to years
+
+# Define timescale values (y-axis)
+timescale_values <- seq(2, 20, length.out = 5)  # Years
+
+par(mfrow = c(5, 5), oma = c(2, 2, 2, 2), mar = c(0.5, 0.5, 0.7, 0.5), mgp = c(2, 0.5, 0))  # Adjust margins
+
+for (t in timescale_values) {
+  for (w in wind_values) {
+    # Update parameters
+    timescale <- t
+    wind <- w
+    
+    # Compute the index for the given wind and timescale
+    dataset_with_nodes_3$index <- compute.index(
+      time_distance_mat = genetic_distance_mat_3, 
+      timed_tree = tree_DENV3, 
+      time_window = wind,
+      metadata = dataset_with_nodes_3, 
+      mutation_rate = mutation_rate,
+      timescale = timescale,
+      genome_length = genome_length
+    )
+    
+    # Plot the index
+    plot(dataset_with_nodes_3$time, 
+         dataset_with_nodes_3$index, 
+         col = adjustcolor(dataset_with_nodes_3$clade_color, alpha.f = 1),
+         bty = 'n', xlim = c(min_year, max_year), cex = 0.4,
+         pch = 16, ylim = c(0, 1), 
+         xaxt = 'n', yaxt = 'n',
+         main = paste0("TS: ", timescale, " | W: ", round(wind, 2))
+    )
+    # Add axes for the leftmost and bottom subplots only
+    if (w == wind_values[1]) axis(2, las = 2, lwd = 0.5)  # Left y-axis
+    if (t == timescale_values[5]) axis(1, lwd = 0.5)      # Bottom x-axis
+  }
+}
+
+mtext("Window (years)", side = 1, outer = TRUE, line = 1.2, cex = 0.6)
+mtext("Timescale (years)", side = 2, outer = TRUE, line = 1.2, cex= 0.6)
+mtext(paste0(
+  "Index Plots for Various Timescales and Windows",
+  "Genome Length: ", genome_length,
+  "Mutation Rate: ", mutation_rate_sci), side = 3, outer = TRUE, line = 1, cex = 0.6, font = 1)
+  
+
+# After generating the 5x5 subplot grid
+file_name_subplot <- glue("3_Outputs/index_plots_DENV3_{mutation_rate_sci}_TS{min(timescale_values)}-{max(timescale_values)}_W{min(wind_values)}-{max(wind_values)}.pdf")
+
+# Save the current plot to a PDF
+dev.copy(pdf, file = file_name_subplot, width = 10, height = 10)  # Adjust dimensions as needed
+dev.off()  # Close the PDF device
+
+```
+
+## Find DENGUE clades based on index dynamics
+
+#### Run the lineage detection algorithm on DENGUE data
+
+To run the lineage detection algorithm, use the function
+*find.groups.by.index.dynamics*, you will need different inputs:
+
+1.  Data: *timed_tree* (must be the same as the one used in
+    compute.index) and *metadata* (*dataset_with_nodes*, with the index
+    values of each node)
+2.  Lineage detection parameters:
+    -   *min_descendants_per_tested_node*: to start the analysis, start
+        from nodes that have this minimum number of sequences
+    -   *min_group_size*: minimum group size, when creating a new
+        potential split
+    -   *node_support*: numeric value of support of each node (e.g.
+        mutations on the branch leading to the node, or bootstrap
+        support)
+    -   *threshold_node_support*: threshold on the node support for the
+        nodes to be considered in the detection algorithm
+    -   *weight_by_time*: size of the window of time on which to compute
+        the weights (NULL or numeric, in years)
+    -   *weighting_transformation*: type of weighting to use (NULL,
+        inv_freq, inv_sqrt, or inv_log)
+    -   *max_groups_found*: maximum number of groups to find (Integer)
+3.  Technical parameters: they do not necessarily need to be updated
+    (see the function documentation for details): *p_value_smooth*,
+    *stepwise_deviance_explained_threshold*, *stepwise_AIC_threshold*,
+    *k_smooth*, *parallelize_code*, *number_cores*, *plot_screening*,
+    *keep_track* and *log_y*.
+
+The function outputs multiple elements in a list:
+
+-   potential_splits: vector of the nodes included in most complex model
+    tested
+-   best_dev_explained: vector of the deviance explained by the best
+    models for each number of groups
+-   first_dev: the null deviance of the initial model (when no lineage
+    is present)
+-   best_AIC : vector of the AIC of the best models for each number of
+    groups
+-   best_BIC: vector of the BIC of the best models for each number of
+    groups
+-   best_summary: list of the summaries of the best models for each
+    number of groups
+-   best_mod: list of the best models for each number of groups
+-   best_groups: list of the groups used in the best models for each
+    number of groups
+-   best_nodes_names: list of the nodes included in the best models for
+    each number of groups
+
+Typically, one chooses a value of *max_groups_found* greater than the
+expected number of lineages. The algorithm then runs until it finds all
+those groups, or until it cannot find any significant split anymore. The
+user can then check the deviance explained by all the models with
+increasing complexity and choose an adequate number of groups.
+
+Once the split nodes have been defined, the user can then extract the
+group ID for each node using the function *merge.groups*. One can choose
+to refine these groups if needed, by setting a minimum number of nodes
+per group (*group_count_threshold*) or a minimum frequency of each group
+(*group_freq_threshold*).
+
+Parameters for the detection:
+
+```{r, eval = T, eval=FALSE}
+time_window_initial = 2030;
+time_window_increment = 100;
+p_value_smooth = 0.05
+weight_by_time = 0.1
+k_smooth = -1
+plot_screening = F
+min_descendants_per_tested_node = 30
+min_group_size = 30
+weighting_transformation = c('inv_sqrt')
+
+parallelize_code = T
+number_cores = 8
+
+max_stepwise_deviance_explained_threshold = 0
+max_groups_found_3 = 7
+max_groups_found_2 = 4
+max_groups_found_1 = 10
+max_groups_found_4 = 2
+max_groups_found = 30
+stepwise_AIC_threshold = 0
+
+keep_track = T
+```
+
+Go back and set the max_groups_found to a reasonable value after doing
+the deviance analysis
+
+DENV3 Run the detection function (this steps takes approximately \<10
+min on 2 cores):
+
+```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+start_time = Sys.time()
+potential_splits_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
+                                                 metadata = dataset_with_nodes_3,
+                                                 node_support = tree_DENV3$edge.length[match((n_seq_3+1):(2*n_seq_3-1),
+                                                                                            tree_DENV3$edge[,2])],
+                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 time_window_initial = time_window_initial,
+                                                 time_window_increment = time_window_increment,
+                                                 min_descendants_per_tested_node = min_descendants_per_tested_node,
+                                                 min_group_size = min_group_size,
+                                                 p_value_smooth = p_value_smooth,
+                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_AIC_threshold = stepwise_AIC_threshold,
+                                                 weight_by_time = weight_by_time,
+                                                 weighting_transformation = weighting_transformation,
+                                                 k_smooth = k_smooth,
+                                                 parallelize_code = parallelize_code,
+                                                 number_cores = number_cores, 
+                                                 plot_screening = plot_screening,
+                                                 max_groups_found = max_groups_found_3, 
+                                                 keep_track = keep_track)
+end_time = Sys.time()
+print(end_time - start_time)
+```
+
+DENV2 Run the detection function (this steps takes approximately \<10
+min on 2 cores):
+
+```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+start_time = Sys.time()
+potential_splits_2 = find.groups.by.index.dynamics(timed_tree = tree_DENV2,
+                                                 metadata = dataset_with_nodes_2,
+                                                 node_support = tree_DENV2$edge.length[match((n_seq_2+1):(2*n_seq_2-1),
+                                                                                            tree_DENV2$edge[,2])],
+                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 time_window_initial = time_window_initial,
+                                                 time_window_increment = time_window_increment,
+                                                 min_descendants_per_tested_node = min_descendants_per_tested_node,
+                                                 min_group_size = min_group_size,
+                                                 p_value_smooth = p_value_smooth,
+                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_AIC_threshold = stepwise_AIC_threshold,
+                                                 weight_by_time = weight_by_time,
+                                                 weighting_transformation = weighting_transformation,
+                                                 k_smooth = k_smooth,
+                                                 parallelize_code = parallelize_code,
+                                                 number_cores = number_cores, 
+                                                 plot_screening = plot_screening,
+                                                 max_groups_found =  max_groups_found_2, 
+                                                 keep_track = keep_track)
+end_time = Sys.time()
+print(end_time - start_time)
+```
+
+DENV1 Run the detection function (this steps takes approximately \<10
+min on 2 cores):
+
+```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+start_time = Sys.time()
+potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
+                                                 metadata = dataset_with_nodes_1,
+                                                 node_support = tree_DENV1$edge.length[match((n_seq_1+1):(2*n_seq_1-1),
+                                                                                            tree_DENV2$edge[,2])],
+                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 time_window_initial = time_window_initial,
+                                                 time_window_increment = time_window_increment,
+                                                 min_descendants_per_tested_node = min_descendants_per_tested_node,
+                                                 min_group_size = min_group_size,
+                                                 p_value_smooth = p_value_smooth,
+                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_AIC_threshold = stepwise_AIC_threshold,
+                                                 weight_by_time = weight_by_time,
+                                                 weighting_transformation = weighting_transformation,
+                                                 k_smooth = k_smooth,
+                                                 parallelize_code = parallelize_code,
+                                                 number_cores = number_cores, 
+                                                 plot_screening = plot_screening,
+                                                 max_groups_found =  max_groups_found_1, 
+                                                 keep_track = keep_track)
+end_time = Sys.time()
+print(end_time - start_time)
+```
+
+DENV4 Run the detection function (this steps takes approximately \<10
+min on 2 cores):
+
+```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+start_time = Sys.time()
+potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
+                                                 metadata = dataset_with_nodes_4,
+                                                 node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                                                                            tree_DENV4$edge[,2])],
+                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 time_window_initial = time_window_initial,
+                                                 time_window_increment = time_window_increment,
+                                                 min_descendants_per_tested_node = min_descendants_per_tested_node,
+                                                 min_group_size = min_group_size,
+                                                 p_value_smooth = p_value_smooth,
+                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_AIC_threshold = stepwise_AIC_threshold,
+                                                 weight_by_time = weight_by_time,
+                                                 weighting_transformation = weighting_transformation,
+                                                 k_smooth = k_smooth,
+                                                 parallelize_code = parallelize_code,
+                                                 number_cores = number_cores, 
+                                                 plot_screening = plot_screening,
+                                                 max_groups_found =  max_groups_found_4,
+                                                 keep_track = keep_track)
+end_time = Sys.time()
+print(end_time - start_time)
+```
+
+Instead, you may wish to load or write the results:
+
+```{r, eval = T}
+potential_splits_3 = readRDS("3_Outputs/potential_splits_DENV3_timescale7_wind1_2025-01-06_2234.rds")
+potential_splits_2 = readRDS("3_Outputs/potential_splits_DENV2_timescale7_wind1_2025-01-06_2234.rds")
+potential_splits_1 = readRDS("3_Outputs/potential_splits_DENV1_timescale7_wind1_2025-01-06_2234.rds")
+potential_splits_4 = readRDS("3_Outputs/potential_splits_DENV4_timescale7_wind1_2025-01-06_2234.rds")
+
+st=format(Sys.time(), "%Y-%m-%d_%H%M")
+##Write
+
+# file_name_3 <- glue("3_Outputs/potential_splits_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
+# write_rds(potential_splits_3, file_name_3)
+# 
+# file_name_2 <- glue("3_Outputs/potential_splits_DENV2_timescale{timescale}_wind{wind}_{st}.rds")
+# write_rds(potential_splits_2, file_name_2)
+# 
+# file_name_1 <- glue("3_Outputs/potential_splits_DENV1_timescale{timescale}_wind{wind}_{st}.rds")
+# write_rds(potential_splits_1, file_name_1)
+# 
+# file_name_4 <- glue("3_Outputs/potential_splits_DENV4_timescale{timescale}_wind{wind}_{st}.rds")
+# write_rds(potential_splits_4, file_name_4)
+
+```
+
+Look at the deviance explained by the models with different number of
+groups. Here for simplicity we directly chose max_groups_found_3 = 7. To
+decide on this many groups, we initially ran the algorithm up to 30
+groups (though it converged at 14).
+
+```{r}
+
+png('DENV_plots.png', width = 1800, height = 1800, res = 300)
+par(mfrow = c(4, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5), 
+    mgp = c(0.75, 0.25, 0), cex.axis = 0.5, cex.lab = 0.5, 
+    cex.main = 0.7, cex.sub = 0.5)
+
+for (i in 1:4) {
+  ## Dynamically retrieve the potential splits for the current group
+  potential_splits <- get(paste0('potential_splits_', i))
+  max_groups_found_i <- get(paste0('max_groups_found_', i))
+  
+  ## Dynamically create or update the data frame for the current group
+  df_explained_dev_i <- data.frame(
+    'N_groups' = 0:length(potential_splits$best_dev_explained),
+    'Non_explained_deviance' = (1 - c(potential_splits$first_dev, potential_splits$best_dev_explained)),
+    'Non_explained_deviance_log' = log(1 - c(potential_splits$first_dev, potential_splits$best_dev_explained))
+  )
+  
+  ## Adjust the log values
+  df_explained_dev_i$Non_explained_deviance_log <- df_explained_dev_i$Non_explained_deviance_log - 
+                                                   min(df_explained_dev_i$Non_explained_deviance_log)
+  
+  ## Linear scale plot
+  plot(df_explained_dev_i$N_groups,
+       df_explained_dev_i$Non_explained_deviance,
+       bty = 'n', ylim = c(0, 1),
+       xaxt = 'n', yaxt = 'n', pch = 16, 
+       main = paste('Linear scale DENV', i), cex = 0.5,
+       ylab = 'Non-explained deviance (%)', xlab = 'Number of groups')
+  axis(1, lwd = 0.5, tck = -0.02)
+  axis(2, las = 2, at = seq(0, 1, 0.1), labels = seq(0, 1, 0.1) * 100, lwd = 0.5, tck = -0.02)
+  abline(v = max_groups_found_i, col = "purple", lty = 2, lwd = 0.5)
+  
+  ## Log scale plot
+  plot(df_explained_dev_i$N_groups,
+       df_explained_dev_i$Non_explained_deviance,
+       log = 'y',
+       ylim = c(0.01, 1),
+       bty = 'n',
+       xaxt = 'n', yaxt = 'n', pch = 16, 
+       main = paste('Log scale DENV', i), cex = 0.5,
+       ylab = 'Non-explained deviance (%) - log scale', xlab = 'Number of groups')
+  axis(1, lwd = 0.5, tck = -0.02)
+  axis(2, las = 2, 
+       at = c(0.01, 0.1, 0.25, 0.5, 1),
+       labels = c(0.01, 0.1, 0.25, 0.5, 1) * 100, 
+       lwd = 0.5, tck = -0.02)
+  abline(v = max_groups_found_i, col = "purple", lty = 2, lwd = 0.5)
+}
+
+dev.off()
+
+img <- readPNG("DENV_plots.png")  # Load the PNG file
+grid.raster(img)                 # Display the image
+
+```
+
+Optimize the number of groups: set the minimum number of sequences per
+group to 30, with a minimum frequency of 1%.
+
+```{r, eval = T}
+
+for (i in 1:4) {
+  ## Dynamically retrieve the relevant timed tree and dataset_with_nodes
+  timed_tree <- get(paste0('tree_DENV', i))
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  potential_splits <- get(paste0('potential_splits_', i))
+  
+  ## Call the merge.groups function
+  split <- merge.groups(
+    timed_tree = timed_tree,
+    metadata = dataset_with_nodes,
+    initial_splits = potential_splits$potential_splits,
+    group_count_threshold = 30,
+    group_freq_threshold = 0.01
+  )
+  
+  ## Dynamically assign the result to split_1, split_2, etc.
+  assign(paste0('split_', i), split)
+}
+
+```
+
+Label sequences with these new groups, and assign a color to each of
+them.
+
+```{r, eval = T}
+
+for (i in 1:4) {
+  ## Dynamically retrieve the dataset and split for the current iteration
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  split <- get(paste0('split_', i))
+  
+  ## Label sequences with new groups
+  dataset_with_nodes$groups <- as.factor(split$groups)
+  
+  ## Reorder labels by time of emergence
+  name_groups <- levels(dataset_with_nodes$groups)
+  time_groups_world <- NULL
+  for (j in 1:length(name_groups)) {
+    time_groups_world <- c(
+      time_groups_world, 
+      min(dataset_with_nodes$time[which(dataset_with_nodes$groups == name_groups[j] & 
+                                        dataset_with_nodes$is.node == 'no')])
+    )
+  }
+  
+  ## Update group levels
+  levels(dataset_with_nodes$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+  dataset_with_nodes$groups <- as.numeric(as.character(dataset_with_nodes$groups))
+  dataset_with_nodes$groups <- as.factor(dataset_with_nodes$groups)
+  
+  ## Update names in the split list
+  split$tip_and_nodes_groups <- match(split$tip_and_nodes_groups, order(time_groups_world, decreasing = TRUE))
+  names(split$tip_and_nodes_groups) <- 1:length(split$tip_and_nodes_groups)
+  split$groups <- as.factor(split$groups)
+  levels(split$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+  split$groups <- as.numeric(as.character(split$groups))
+  
+  ## Choose color palette
+  n_groups <- length(name_groups)
+  colors_groups <- met.brewer(name = "Cross", n = n_groups, type = "continuous")
+  
+  ## Color each group
+  dataset_with_nodes$group_color <- dataset_with_nodes$groups
+  levels(dataset_with_nodes$group_color) <- colors_groups
+  dataset_with_nodes$group_color <- as.character(dataset_with_nodes$group_color)
+  
+  ## Dynamically save group names and colors for this iteration
+  assign(paste0('name_groups_', i), name_groups)
+  assign(paste0('colors_groups_', i), colors_groups)
+  
+  ## Save the updated variables dynamically
+  assign(paste0('dataset_with_nodes_', i), dataset_with_nodes)
+  assign(paste0('split_', i), split)
+  assign(paste0('colors_groups_', i), colors_groups)
+}
+
+
+
+```
+
+#### Plot tree & index below, with colors from index-defined groups
+
+Plot the tree and index colored with the new groups:
+
+```{r, eval = T}
+for (i in 1:4) {
+  ## Dynamically retrieve the relevant variables
+  tree <- get(paste0('tree_DENV', i))
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  root_height <- get(paste0('root_height_', i))
+  min_year <- get('min_year')  # Assuming min_year and max_year are global
+  max_year <- get('max_year')
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i)) 
+  genome_length <- get('genome_length')  # Global variables
+  mutation_rate_sci <- get('mutation_rate_sci')
+  timescale <- get('timescale')
+  wind <- get('wind')
+  
+  ## Plotting
+  par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+  
+  ## Tree
+  tree_plot <- plot(tree, show.tip.label = FALSE, 
+                    edge.color = 'grey', edge.width = 0.25,
+                    x.lim = c(min_year, max_year) - root_height)
+  tiplabels(pch = 16, col = dataset_with_nodes$group_color, cex = 0.3)
+  axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+               at_axis = seq(min_year, max_year, 0.5) - root_height,
+               lab_axis = seq(min_year, max_year, 0.5), lwd = 0.5)
+  
+  ## Index colored by group
+  index_plot <- plot(dataset_with_nodes$time, 
+                     dataset_with_nodes$index, 
+                     col = adjustcolor(dataset_with_nodes$group_color, alpha.f = 1),
+                     bty = 'n', xlim = c(min_year, max_year), cex = 0.5,
+                     pch = 16, ylab = 'Index', xlab = 'Time (years)', yaxt = 'n')
+  title(main = paste0(
+    "DENV_", i, "\n",
+    "Genome Length: ", genome_length, " bp\n",
+    "Mutation Rate: ", mutation_rate_sci, "\n",
+    "Timescale: ", timescale, " years \n",
+    "Window: ", round(wind, 2), " years"
+  ), line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+  
+  axis(2, las = 2, lwd = 0.5)
+  axis(1, lwd = 0.5)
+  
+  
+  ## Color key
+  legend('topright', 
+         legend = name_groups,
+         fill = colors_groups, border = colors_groups,
+         cex = 0.5, bty = 'n', ncol = 5)
+  
+  ## Dynamically store the index plot
+  assign(paste0('index_plot_', i), index_plot)
+}
+
+index_plot_1
+index_plot_2
+index_plot_3
+index_plot_4
+
+```
+
+#### Compare NextStrain groups and groups called with the index
+
+Generate trees colored with each set of groups next to each other:
+
+```{r, eval = T, results = 'hide', warning=FALSE, message=FALSE}
+## Tree with index-defined groups
+
+# DENV 3
+groupings_3 = matrix(dataset_with_nodes_3$groups[which(dataset_with_nodes_3$is.node == 'no')], ncol = 1)
+colnames(groupings_3) = 'groups'
+rownames(groupings_3) = dataset_with_nodes_3$name_seq[which(dataset_with_nodes_3$is.node == 'no')]
+cols_3 = as.character(colors_groups_3)
+names(cols_3) = as.character(1:max(as.numeric(name_groups_3)))
+plot_tree_world_groups_3 <- ggtree(tree_DENV3, mrsd=lubridate::date_decimal(max(times_seqs_3)), size = 0.10,
+                   aes(color = as.character(dataset_with_nodes_3$groups), label = label)) + 
+  scale_color_manual(values = cols_3)+theme_tree2()
+plot_tree_world_groups_3 = gheatmap(plot_tree_world_groups_3, groupings_3, offset=0.1, width=0.10, 
+                    colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = (cols_3))+scale_y_continuous(expand=c(0, 0.3))+theme(legend.position = 'none')
+
+## Tree with NextStrain clades
+Nextstrain_3 = matrix(dataset_with_nodes_3$clade[which(dataset_with_nodes_3$is.node == 'no')], ncol = 1)
+colnames(Nextstrain_3) = 'groups'
+rownames(Nextstrain_3) = dataset_with_nodes_3$name_seq[which(dataset_with_nodes_3$is.node == 'no')]
+cols_NextStrain_3 = as.character(colors_clade_3)
+names(cols_NextStrain_3) = clade_labels_3
+plot_tree_world_Nextstrain_3 <- ggtree(tree_DENV3, mrsd=lubridate::date_decimal(max(times_seqs_3)), size = 0.10,
+                                          aes(color = as.character(dataset_with_nodes_3$clade), label = label)) + 
+  scale_color_manual(values = cols_NextStrain_3)+
+  theme_tree2(legend = 'none')
+plot_tree_world_Nextstrain_3 = gheatmap(plot_tree_world_Nextstrain_3, Nextstrain_3, offset=0.1, width=0.10, 
+                     colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = cols_NextStrain_3, na.value = 'white')+
+  scale_x_reverse() + 
+  scale_y_continuous(expand=c(0, 0.3))+
+  theme(legend.position = 'none')
+
+plot_tree_world_groups_3
+plot_tree_world_Nextstrain_3
+
+# DENV 2
+groupings_2 = matrix(dataset_with_nodes_2$groups[which(dataset_with_nodes_2$is.node == 'no')], ncol = 1)
+colnames(groupings_2) = 'groups'
+rownames(groupings_2) = dataset_with_nodes_2$name_seq[which(dataset_with_nodes_2$is.node == 'no')]
+cols_2 = as.character(colors_groups_2)
+names(cols_2) = as.character(1:max(as.numeric(name_groups_2)))
+plot_tree_world_groups_2 <- ggtree(tree_DENV2, mrsd=lubridate::date_decimal(max(times_seqs_2)), size = 0.10,
+                   aes(color = as.character(dataset_with_nodes_2$groups), label = label)) + 
+  scale_color_manual(values = cols_2)+theme_tree2()
+plot_tree_world_groups_2 = gheatmap(plot_tree_world_groups_2, groupings_2, offset=0.1, width=0.10, 
+                    colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = (cols_2))+scale_y_continuous(expand=c(0, 0.3))+theme(legend.position = 'none')
+
+## Tree with NextStrain clades
+Nextstrain_2 = matrix(dataset_with_nodes_2$clade[which(dataset_with_nodes_2$is.node == 'no')], ncol = 1)
+colnames(Nextstrain_2) = 'groups'
+rownames(Nextstrain_2) = dataset_with_nodes_2$name_seq[which(dataset_with_nodes_2$is.node == 'no')]
+cols_NextStrain_2 = as.character(colors_clade_2)
+names(cols_NextStrain_2) = clade_labels_2
+plot_tree_world_Nextstrain_2 <- ggtree(tree_DENV2, mrsd=lubridate::date_decimal(max(times_seqs_2)), size = 0.10,
+                                          aes(color = as.character(dataset_with_nodes_2$clade), label = label)) + 
+  scale_color_manual(values = cols_NextStrain_2)+
+  theme_tree2(legend = 'none')
+plot_tree_world_Nextstrain_2 = gheatmap(plot_tree_world_Nextstrain_2, Nextstrain_2, offset=0.1, width=0.10, 
+                     colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = cols_NextStrain_2, na.value = 'white')+
+  scale_x_reverse() + 
+  scale_y_continuous(expand=c(0, 0.3))+
+  theme(legend.position = 'none')
+
+plot_tree_world_groups_2
+plot_tree_world_Nextstrain_2
+
+# DENV1
+groupings_1 = matrix(dataset_with_nodes_1$groups[which(dataset_with_nodes_1$is.node == 'no')], ncol = 1)
+colnames(groupings_1) = 'groups'
+rownames(groupings_1) = dataset_with_nodes_1$name_seq[which(dataset_with_nodes_1$is.node == 'no')]
+cols_1 = as.character(colors_groups_1)
+names(cols_1) = as.character(1:max(as.numeric(name_groups_1)))
+plot_tree_world_groups_1 <- ggtree(tree_DENV1, mrsd=lubridate::date_decimal(max(times_seqs_1)), size = 0.10,
+                   aes(color = as.character(dataset_with_nodes_1$groups), label = label)) + 
+  scale_color_manual(values = cols_1)+theme_tree2()
+plot_tree_world_groups_1 = gheatmap(plot_tree_world_groups_1, groupings_1, offset=0.1, width=0.10, 
+                    colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = (cols_1))+scale_y_continuous(expand=c(0, 0.3))+theme(legend.position = 'none')
+
+## Tree with NextStrain clades
+Nextstrain_1 = matrix(dataset_with_nodes_1$clade[which(dataset_with_nodes_1$is.node == 'no')], ncol = 1)
+colnames(Nextstrain_1) = 'groups'
+rownames(Nextstrain_1) = dataset_with_nodes_1$name_seq[which(dataset_with_nodes_1$is.node == 'no')]
+cols_NextStrain_1 = as.character(colors_clade_1)
+names(cols_NextStrain_1) = clade_labels_1
+plot_tree_world_Nextstrain_1 <- ggtree(tree_DENV1, mrsd=lubridate::date_decimal(max(times_seqs_1)), size = 0.10,
+                                          aes(color = as.character(dataset_with_nodes_1$clade), label = label)) + 
+  scale_color_manual(values = cols_NextStrain_1)+
+  theme_tree2(legend = 'none')
+plot_tree_world_Nextstrain_1 = gheatmap(plot_tree_world_Nextstrain_1, Nextstrain_1, offset=0.1, width=0.10, 
+                     colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = cols_NextStrain_1, na.value = 'white')+
+  scale_x_reverse() + 
+  scale_y_continuous(expand=c(0, 0.3))+
+  theme(legend.position = 'none')
+
+plot_tree_world_groups_1
+plot_tree_world_Nextstrain_1
+
+
+# DENV 4
+groupings_4 = matrix(dataset_with_nodes_4$groups[which(dataset_with_nodes_4$is.node == 'no')], ncol = 1)
+colnames(groupings_4) = 'groups'
+rownames(groupings_4) = dataset_with_nodes_4$name_seq[which(dataset_with_nodes_4$is.node == 'no')]
+cols_4 = as.character(colors_groups_4)
+names(cols_4) = as.character(1:max(as.numeric(name_groups_4)))
+plot_tree_world_groups_4 <- ggtree(tree_DENV4, mrsd=lubridate::date_decimal(max(times_seqs_4)), size = 0.10,
+                   aes(color = as.character(dataset_with_nodes_4$groups), label = label)) + 
+  scale_color_manual(values = cols_4)+theme_tree2()
+plot_tree_world_groups_4 = gheatmap(plot_tree_world_groups_4, groupings_4, offset=0.1, width=0.10, 
+                    colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = (cols_4))+scale_y_continuous(expand=c(0, 0.3))+theme(legend.position = 'none')
+
+## Tree with NextStrain clades
+Nextstrain_4 = matrix(dataset_with_nodes_4$clade[which(dataset_with_nodes_4$is.node == 'no')], ncol = 1)
+colnames(Nextstrain_4) = 'groups'
+rownames(Nextstrain_4) = dataset_with_nodes_4$name_seq[which(dataset_with_nodes_4$is.node == 'no')]
+cols_NextStrain_4 = as.character(colors_clade_4)
+names(cols_NextStrain_4) = clade_labels_4
+plot_tree_world_Nextstrain_4 <- ggtree(tree_DENV4, mrsd=lubridate::date_decimal(max(times_seqs_4)), size = 0.10,
+                                          aes(color = as.character(dataset_with_nodes_4$clade), label = label)) + 
+  scale_color_manual(values = cols_NextStrain_4)+
+  theme_tree2(legend = 'none')
+plot_tree_world_Nextstrain_4 = gheatmap(plot_tree_world_Nextstrain_4, Nextstrain_4, offset=0.1, width=0.10, 
+                     colnames=FALSE, legend_title="Group", color=NA) +
+  scale_fill_manual(values = cols_NextStrain_4, na.value = 'white')+
+  scale_x_reverse() + 
+  scale_y_continuous(expand=c(0, 0.3))+
+  theme(legend.position = 'none')
+
+plot_tree_world_groups_4
+plot_tree_world_Nextstrain_4
+
+```
+
+Dynamically doing the above (Doesn't work due to aethetics inside the
+loop issues)
+
+```{r}
+
+# 
+# # 
+# # for (i in 1:2) {
+# #   # Dynamically retrieve variables
+# #   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+# #   colors_groups <- get(paste0('colors_groups_', i))
+# #   name_groups <- get(paste0('name_groups_', i))
+# #   tree <- get(paste0('tree_DENV', i))
+# #   times_seqs <- get(paste0('times_seqs_', i))
+# #   colors_clade <- get(paste0('colors_clade_', i))
+# #   clade_labels <- get(paste0('clade_labels_', i))
+# #   
+# #   # Create groupings
+# #   groupings <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+# #   colnames(groupings) <- 'groups'
+# #   rownames(groupings) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+# #   assign(paste0('groupings_', i), groupings)
+# #   
+# #   # Create cols
+# #   cols <- as.character(colors_groups)
+# #   names(cols) <- as.character(1:max(as.numeric(name_groups)))
+# #   assign(paste0('cols_', i), cols)
+# #   
+# #   # Create plot_tree_world_groups
+# #   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+# #                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) + 
+# #     scale_color_manual(values = cols) + theme_tree2()
+# #   
+# #   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groupings, offset = 0.1, width = 0.10, 
+# #                                      colnames = FALSE, legend_title = "Group", color = NA) +
+# #     scale_fill_manual(values = cols) +
+# #     scale_y_continuous(expand = c(0, 0.3)) +
+# #     theme(legend.position = 'none')
+# #   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
+# #   
+# #   # Create Nextstrain
+# #   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+# #   colnames(Nextstrain) <- 'groups'
+# #   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+# #   assign(paste0('Nextstrain_', i), Nextstrain)
+# #   
+# #   # Create cols_NextStrain
+# #   cols_NextStrain <- as.character(colors_clade)
+# #   names(cols_NextStrain) <- clade_labels
+# #   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
+# #   
+# #   # Create plot_tree_world_Nextstrain
+# #   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+# #                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) + 
+# #     scale_color_manual(values = cols_NextStrain) +
+# #     theme_tree2(legend = 'none')
+# #   
+# #   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10, 
+# #                                          colnames = FALSE, legend_title = "Group", color = NA) +
+# #     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
+# #     scale_x_reverse() + 
+# #     scale_y_continuous(expand = c(0, 0.3)) +
+# #     theme(legend.position = 'none')
+# #   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
+# #   
+# #   # Print plots
+# #   print(plot_tree_world_groups)
+# #   print(plot_tree_world_Nextstrain)
+# # }
+# # 
+# # plot_tree_world_groups_1
+# # plot_tree_world_Nextstrain_1
+# # 
+# 
+# # for (i in 1:4) {
+# #   # Retrieve relevant variables
+# #   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+# #   tree <- get(paste0('tree_DENV', i))
+# #   times_seqs <- get(paste0('times_seqs_', i))
+# #   colors_clade <- get(paste0('colors_clade_', i))
+# #   clade_labels <- get(paste0('clade_labels_', i))
+# #   name_groups <- get(paste0('name_groups_', i))
+# #   colors_groups <- get(paste0('colors_groups_', i)) 
+# #   
+# #   ## Tree with index-defined groups
+# #   groupings <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+# #   colnames(groupings) <- 'groups'
+# #   rownames(groupings) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+# #   
+# #   # Assign group colors dynamically
+# #   cols <- as.character(colors_groups)
+# #   names(cols) <- as.character(1:max(as.numeric(name_groups)))
+# #   
+# #   # Store groupings and cols dynamically
+# #   assign(paste0('groupings_', i), groupings)
+# #   assign(paste0('cols_', i), cols)
+# #   
+# #   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+# #                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) + 
+# #     scale_color_manual(values = cols) +
+# #     theme_tree2()
+# #   
+# #   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groupings, offset = 0.1, width = 0.10, 
+# #                                      colnames = FALSE, legend_title = "Group", color = NA) +
+# #     scale_fill_manual(values = cols) +
+# #     scale_y_continuous(expand = c(0, 0.3)) +
+# #     theme(legend.position = 'none')
+# #   
+# #   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
+# #   
+# #   ## Tree with NextStrain clades
+# #   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+# #   colnames(Nextstrain) <- 'groups'
+# #   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+# #   
+# #   # Assign clade colors dynamically
+# #   cols_NextStrain <- as.character(colors_clade)
+# #   names(cols_NextStrain) <- clade_labels
+# #   
+# #   # Store NextStrain and cols_NextStrain dynamically
+# #   assign(paste0('Nextstrain_', i), Nextstrain)
+# #   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
+# #   
+# #   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+# #                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) + 
+# #     scale_color_manual(values = cols_NextStrain) +
+# #     theme_tree2(legend = 'none')
+# #   
+# #   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10, 
+# #                                          colnames = FALSE, legend_title = "Group", color = NA) +
+# #     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
+# #     scale_x_reverse() + 
+# #     scale_y_continuous(expand = c(0, 0.3)) +
+# #     theme(legend.position = 'none')
+# #   
+# #   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
+# # }
+# # 
+# 
+# 
+# # for (i in 1:4) {
+# #   # Retrieve relevant variables
+# #   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+# #   tree <- get(paste0('tree_DENV', i))
+# #   times_seqs <- get(paste0('times_seqs_', i))
+# #   colors_clade <- get(paste0('colors_clade_', i))
+# #   clade_labels <- get(paste0('clade_labels_', i))
+# #   name_groups <- get(paste0('name_groups_', i))
+# #   colors_groups <- get(paste0('colors_groups_', i)) 
+# # 
+# #   ## Tree with index-defined groups
+# #   groups <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+# #   colnames(groups) <- 'groups'
+# #   rownames(groups) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+# #   cols <- as.character(colors_groups)
+# #   names(cols) <- as.character(1:max(as.numeric(name_groups)))
+# #   
+# #   assign(paste0('groups_', i), groups)
+# #   assign(paste0('cols_', i), cols)
+# #   
+# #   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+# #                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) + 
+# #     scale_color_manual(values = cols) +
+# #     theme_tree2()
+# #   
+# #   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groups, offset = 0.1, width = 0.10, 
+# #                                      colnames = FALSE, legend_title = "Group", color = NA) +
+# #     scale_fill_manual(values = cols) +
+# #     scale_y_continuous(expand = c(0, 0.3)) +
+# #     theme(legend.position = 'none')
+# #   
+# #   # Dynamically store the plot
+# #   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
+# #   
+# #   ## Tree with NextStrain clades
+# #   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+# #   colnames(Nextstrain) <- 'groups'
+# #   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+# #   cols_NextStrain <- as.character(colors_clade)
+# #   names(cols_NextStrain) <- clade_labels
+# #   
+# #   assign(paste0('Nextstrain_', i), Nextstrain)
+# #   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
+# #   
+# #   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+# #                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) + 
+# #     scale_color_manual(values = cols_NextStrain) +
+# #     theme_tree2(legend = 'none')
+# #   
+# #   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10, 
+# #                                          colnames = FALSE, legend_title = "Group", color = NA) +
+# #     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
+# #     scale_x_reverse() + 
+# #     scale_y_continuous(expand = c(0, 0.3)) +
+# #     theme(legend.position = 'none')
+# #   
+# #   # Dynamically store the plot
+# #   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
+# # }
+# nrow(groupings_1)
+# nrow(Nextstrain_1)
+# length(cols_3)
+# length(cols_NextStrain_3)
+# 
+# plot_tree_world_groups_1
+# plot_tree_world_Nextstrain_1
+
+
+```
+
+Plot the generated trees:
+
+```{r, eval = T}
+plot_grid(plot_tree_world_groups_i, plot_tree_world_Nextstrain_i,
+          rel_widths = c(1, 1), labels = c('Automatic clades DENV_i', 'NextStrain clades_i'), label_size = 10, label_x = c(0.1, 0.25), ncol = 2)
+
+ggplotly(subplot(plot_tree_world_groups_i, plot_tree_world_Nextstrain_i,
+         widths = c(0.5, 0.5)))
+```
+
+Dynamcially
+
+```{r}
+for (i in 1:4) {
+  # Dynamically retrieve the group and NextStrain plots
+  plot_tree_world_groups <- get(paste0('plot_tree_world_groups_', i))
+  plot_tree_world_Nextstrain <- get(paste0('plot_tree_world_Nextstrain_', i))
+  
+  # Side-by-side static plot using plot_grid
+  combined_plot <- plot_grid(
+    plot_tree_world_groups, 
+    plot_tree_world_Nextstrain,
+    rel_widths = c(1, 1), 
+    labels = c(paste('Automatic clades DENV_', i, sep = ''), paste('Classical clades DENV_', i, sep = '')), 
+    label_size = 10, 
+    label_x = c(0.1, 0.25), 
+    ncol = 2
+  )
+  
+  # Save the static combined plot
+  ggsave(filename = paste0("3_Outputs/","combined_plot_DENV_", i, ".png"), plot = combined_plot, width = 12, height = 6, dpi = 300)
+  
+  # Side-by-side interactive plot using ggplotly and subplot
+  interactive_plot <- ggplotly(
+    subplot(plot_tree_world_groups, plot_tree_world_Nextstrain, widths = c(0.5, 0.5))
+  )
+  
+  # Save the interactive plot as an HTML file
+  htmlwidgets::saveWidget(interactive_plot, file = paste0("3_Outputs/","interactive_plot_DENV_", i, ".html"))
+}
+
+```
+
+## Quantify the fitness of detected DENV lineage
+
+#### Run the fitness model
+
+Quantify the fitness of each group you can run the code (this steps
+takes approximately \<5 min on 3 cores):
+
+```{r, eval = F, results = 'hide', warning=FALSE, message=FALSE}
+options(mc.cores = 8) #Set to 8 cores
+start_time = Sys.time()
+## Load and compile stan code (this can take a few minutes)
+## If you get an error about path mapping to a previous user 
+##make sure to go into the model/scripts folder and delete the old unix model before making this one
+model_compiled <- cmdstan_model(stan_file = '2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_20231220.stan')
+## Run model on the groups
+
+
+res_fitness_3 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_3,
+                                                        tree = tree_DENV3,
+                                                        min_year = min_year, 
+                                                        window = wind, 
+                                                        model_compiled = model_compiled,
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1) #increased warmup and sampling from 250 and 500
+
+
+res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_2,
+                                                        tree = tree_DENV2,
+                                                        min_year = min_year, 
+                                                        window = wind, 
+                                                        model_compiled = model_compiled,
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+
+res_fitness_1 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_1,
+                                                        tree = tree_DENV1,
+                                                        min_year = min_year, 
+                                                        window = wind, 
+                                                        model_compiled = model_compiled,
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+
+
+res_fitness_4 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_4,
+                                                        tree = tree_DENV4,
+                                                        min_year = min_year, 
+                                                        window = wind, 
+                                                        model_compiled = model_compiled,
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+end_time = Sys.time()
+print(end_time - start_time)
+```
+
+You might encounter a warning saying that '*alpha_true_GA*' has a
+missing init value - this is normal as those groups (ancestral groups
+that are not present at the start of the time series) do not always
+exist and therefore there is no default initial value. This is does not
+impact the model run. The seed has been set to 1 so allow for
+reproducible results.
+
+To save some time, you may wish to load the results:
+
+```{r, eval = T}
+# res_fitness_1 = readRDS("3_Outputs/res_fitness_DENV1_timescale7_wind1_2025-01-06_2234.rds")
+# res_fitness_2 = readRDS("3_Outputs/res_fitness_DENV2_timescale7_wind1_2025-01-06_2234.rds")
+# res_fitness_3 = readRDS("3_Outputs/res_fitness_DENV3_timescale7_wind1_2025-01-06_2234.rds")
+# res_fitness_4 = readRDS("3_Outputs/res_fitness_DENV4_timescale7_wind1_2025-01-06_2234.rds")
+
+
+
+
+# #Write
+# file_name_fitness_3 <- glue("3_Outputs/res_fitness_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_fitness_2 <- glue("3_Outputs/res_fitness_DENV2_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_fitness_1 <- glue("3_Outputs/res_fitness_DENV1_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_fitness_4 <- glue("3_Outputs/res_fitness_DENV4_timescale{timescale}_wind{wind}_{st}.rds")
+
+# write_rds(res_fitness_3, file_name_fitness_3)
+# write_rds(res_fitness_2, file_name_fitness_2)
+# write_rds(res_fitness_1, file_name_fitness_1)
+# write_rds(res_fitness_4, file_name_fitness_4)
+
+```
+
+#### Plot the fits and estimated parameters
+
+Plot the fits:
+
+```{r}
+order_colors = order(as.numeric(split_i$tip_and_nodes_groups))
+
+#assign order_colors_i here
+
+colour_lineage = colors_groups_i[match(split_i$tip_and_nodes_groups[order_colors], name_groups_i)]
+#assign color_lineage_i here
+
+plot_fit_data_new(data = res_fitness_i$data,
+                  Chains = res_fitness_i$chains,
+                  colour_lineage = colour_lineage,
+                  xmin = min_year, xmax = max_year)
+
+# Color key
+legend('topright', 
+       legend = name_groups_i,
+       fill = colour_lineage, border = colour_lineage,
+       cex = 0.5, bty = 'n', ncol = 5)
+```
+
+```{r}
+for (i in 1:4) {
+  # Retrieve relevant variables
+  split <- get(paste0('split_', i))
+  res_fitness <- get(paste0('res_fitness_', i))
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i))
+  
+  # Order colors dynamically
+  order_colors <- order(as.numeric(split$tip_and_nodes_groups))
+  assign(paste0('order_colors_', i), order_colors)
+  
+  # Assign lineage colors dynamically
+  colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
+  assign(paste0('colour_lineage_', i), colour_lineage)
+  
+  png(filename = paste0("3_Outputs/fitness_plot_DENV_", i, ".png"), width = 1600, height = 1400, res = 300)
+  
+  # Plot fitness data
+  plot_fit_data_new(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    xmin = min_year, 
+    xmax = max_year
+  )
+  
+  # Add legend
+  legend(
+    'topright', 
+    legend = name_groups,
+    fill = colour_lineage, 
+    border = colour_lineage,
+    cex = 0.5, bty = 'n', ncol = 5
+  )
+  
+  # Close the PNG device
+  dev.off()
+}
+
+```
+
+Plot the predicted vs observed proportions:
+
+```{r}
+plot_observed_vs_predicted(data = res_fitness$data,
+                           Chains = res_fitness$chains,
+                           colour_lineage = colour_lineage)
+
+```
+
+```{r}
+for (i in 1:4) {
+
+  res_fitness <- get(paste0('res_fitness_', i))
+  colour_lineage <- get(paste0('colour_lineage_', i))
+  
+
+  plot_observed_vs_predicted(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage
+  )
+  
+ 
+  png(filename = paste0("3_Outputs/observed_vs_predicted_DENV_", i, ".png"), width = 1400, height = 16600, res = 300)
+  
+  # Re-plot to save it within the PNG file
+  plot_observed_vs_predicted(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage
+  )
+  
+  dev.off()
+}
+
+```
+
+Plot raw fitness estimates:
+
+```{r}
+for (i in 1:4) {
+  res_fitness <- get(paste0('res_fitness_', i))
+  colour_lineage <- get(paste0('colour_lineage_', i))
+  
+  # Plot estimated fitness relative to ancestral reference
+  plot_estimated_fitness_ref_ancestral(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    gentime = 1
+  )
+  
+  # Save the plot as a PNG
+  png(filename = paste0("3_Outputs/estimated_fitness_ref_ancestral_DENV_", i, ".png"), width = 1200, height = 800, res = 300)
+  
+  # Re-plot to save it within the PNG file
+  plot_estimated_fitness_ref_ancestral(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    gentime = 1
+  )
+  
+
+  dev.off()
+}
+
+```
+
+# Lineage-defining mutations
+
+## Getting SNP Data
+
+```{r location_reconstruction}
+
+## Locations
+##Originally Noemie had different tree locaitons, World, Thailand, etc for SarsCov2
+##We will look at serotypes instead here
+locations = c("Dengue_1", "Dengue_2", "Dengue_3", "Dengue_4")
+
+#optionally load in new trees via readnexus here and process as we did at the begining:
+# Example: tree_DENV1_world = read.nexus("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/R/Pylowave Dengue/1_Data/1_5_DENV/best_tree_d1_Lin.nexus")
+
+tree_DENV1_thai <-  tree_DENV1
+tree_DENV2_thai <-  tree_DENV2
+tree_DENV3_thai <-  tree_DENV3
+tree_DENV4_thai <-  tree_DENV4
+
+
+
+## Timed-tree
+tree_DENV_all = list(tree_DENV1_thai,tree_DENV2_thai, tree_DENV3_thai, tree_DENV3_thai
+)
+names(tree_DENV_all) = locations
+
+## Names all sequences
+names_seqs_all = list(names_seqs_1,names_seqs_2, names_seqs_3, names_seqs_4)
+names(names_seqs_all) = locations
+
+## Collection times of all sequences
+times_seqs_all = list(times_seqs_1, times_seqs_2, times_seqs_3, times_seqs_4)
+
+names(times_seqs_all) = locations
+
+
+#####01/24/25  TODO Are we sure this is the right/best metadata version? Length is diffent than tree tips
+
+
+## Correspondences Virus ID // EPI ID (GISAID)
+correspondence_ID_EPI_Denv_1 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d1_n1026_geneious_metadata.csv", header = T, 
+                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+
+correspondence_ID_EPI_Denv_2 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d2_n796_geneious_metadata.csv", header = T, 
+                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+
+correspondence_ID_EPI_Denv_3 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d3_n625_degap_geneious_metadata.csv", header = T, 
+                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+
+correspondence_ID_EPI_Denv_4 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d4_n477_geneious_metadata.csv", header = T, 
+                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+
+
+correspondence_ID_EPI_all <- list(correspondence_ID_EPI_Denv_1, 
+                                  correspondence_ID_EPI_Denv_2, 
+                                  correspondence_ID_EPI_Denv_3, 
+                                  correspondence_ID_EPI_Denv_4)
+
+# Apply transformations to all data frames in the list, create longname and make it look liek the vcf file names
+correspondence_ID_EPI_all <- lapply(correspondence_ID_EPI_all, function(df) {
+  # Create the 'longname' column dynamically
+  df$longname <- gsub(" ", "_", paste(df$Name, df$Description, sep = "_"))
+  
+  # Reorder columns to put 'longname' first
+  df <- df[, c("longname", setdiff(names(df), "longname"))]
+  
+  return(df)
+})
+
+names(correspondence_ID_EPI_all) <- locations
+
+
+
+## Datasets with nodes and tips
+dataset_with_nodes_all = list(dataset_with_nodes_1,
+                              dataset_with_nodes_2,
+                              dataset_with_nodes_3,
+                              dataset_with_nodes_4)
+
+names(dataset_with_nodes_all) = locations
+```
+
+Known issue: need to add underscoreses to the headers of the fasta
+files, and rebuild the vcf files. For some reason the R and the python
+code I use to find the VCF snp matrix does not like the spaces in the
+fasta names. This could be addressed in python or R. I did it in
+texteditor because it's a simple find and replace. You will only have to
+do this once.
+
+## Generating vcf files from fasta alignments
+
+So I used the python SNP caller:
+<https://github.com/sanger-pathogens/snp-sites> to do this. Geneious
+doesn't work since it considers all the sequences in the alignment to be
+reads of a reference sequence, so you need something reference sequence
+agnositc. Nóemie did make a SNP matrix fasta to VCF script called
+create_vcf_from_fasta.R (with DF_edits versions too) that works
+similarly.
+
+The SNP-sites generated vcf files are suffixed underscore_bioconda.vcf
+
+```{r reconstruction_build}
+
+########################################################################################################################################
+## Reconstruction
+########################################################################################################################################
+ORFs = c('whole_genome', "2Kfrag", "NS4B", "NS4A", "NS3",  "NS2B", "NS4A", "NS1", "prM", "E", "C", "NS5") 
+#Can use mutiple orfs here if you have orf fasta files. We have the whole genome so we'll use that for now
+
+vcf_files <- c("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d1_n1026_copy_underscore_bioconda.vcf",
+                        "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d2_n796_underscore_bioconda.vcf",
+                        "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d3_n625_degap_underscore_bioconda.vcf",
+                        "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d4_n477_underscore_bioconda.vcf"
+                         )
+
+
+orf_vcf_files <- c(
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/protein 2K underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS4B underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS4A underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS3 underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS2B underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS2A underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS1 underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/membrane glycoprotein precursor M underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/envelope protein E underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/anchored capsid protein C underscore_bioconda.vcf",
+  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/RNA-dependent RNA polymerase NS5 underscore_bioconda.vcf"
+  )
+
+
+#Debug foreach: call this before running inside the loop
+# l = 1:length(locations)
+# l= 1
+
+##
+
+foreach(l = 1:length(locations)) %do% {
+  print(paste0('Serotype: ', locations[l]))
+  names_seqs_all_simple = unlist(lapply(names_seqs_all[[l]], function(x){
+     # Extract the substring after the first underscore, thus removing the time and keeping the name only
+    simple_name <- str_extract(x, "(?<=_).*")
+    #replace spaces with underscores
+    simple_name <- gsub("_", " ", simple_name) 
+    return(simple_name)
+  }))
+  
+  print(head(names_seqs_all_simple))
+  
+  
+  for(o in 1:length(ORFs)){
+    print(paste0('Location: ', locations[l], ' / ORF: ', ORFs[o]))
+    
+     # Load the correct VCF file
+    if (ORFs[o] == "whole_genome") {
+      data_vcf <- read.vcfR(vcf_files[l]) # Whole genome VCF for the location
+    } else {
+      # Load ORF-specific VCF and filter based on location
+      data_vcf <- read.vcfR(orf_vcf_files[o - 1]) # Adjust index to match ORFs excluding whole genome
+    }
+    
+    
+    fixed <- as.data.frame(data_vcf@fix)
+    gt <- as.data.frame(data_vcf@gt)
+    data_vcf <- cbind(fixed, gt) # Combine fixed fields with genotype data
+    
+    
+    # Extract the last three parts of longnames from correspondence_ID_EPI_all
+    longname_suffixes <- sapply(correspondence_ID_EPI_all[[l]]$longname, function(x) {
+      parts <- strsplit(x, "_")[[1]]
+      paste(tail(parts, 3), collapse = "_")
+    })
+    
+    # Extract the last three parts of column names from data_vcf
+    data_vcf_suffixes <- sapply(colnames(data_vcf), function(x) {
+      parts <- strsplit(x, "_")[[1]]
+      paste(tail(parts, 3), collapse = "_")
+    })
+    
+    # Match the suffixes and get the indices
+    m <- match(data_vcf_suffixes, longname_suffixes)
+    
+    # View unmatched longnames
+    unmatched_longnames <- setdiff(longname_suffixes, data_vcf_suffixes)
+    print(unmatched_longnames)
+    
+    # View matched data
+    matched_indices <- which(!is.na(m))
+    length(matched_indices) == length(row.names(correspondence_ID_EPI_all))
+    
+##    ##This code might be the issue 
+    colnames(data_vcf)[which(!is.na(m))] = correspondence_ID_EPI_all[[l]]$Description[m[which(!is.na(m))]]
+    
+    ## Create dataset with names of each sequence
+    dataset_tips = data.frame('ID' = 1:length(names_seqs_all[[l]]),
+                              'name_seq' = names_seqs_all[[l]],
+                              'time' = times_seqs_all[[l]])
+    ## Add AA data to the main dataset
+    a = match(names_seqs_all_simple, colnames(data_vcf))
+    a <- a[!is.na(a)] #Removing Chrom through info 
+    dataset_tips = cbind(dataset_tips, t(data_vcf[,a]))
+    colnames(dataset_tips) = c('ID', 'name_seq', 'time', data_vcf$POS)
+    
+    
+    
+    ## Reconstruction
+    reconstruction = reconstruct_node_states(tree = tree_DENV_all[[l]], 
+                                             dataset_tips = dataset_tips, 
+                                             dataset_with_nodes = dataset_with_nodes_all[[l]], 
+                                             min_prop = 0, 
+                                             max_prop = 1, 
+                                             names_seqs = names_seqs_all[[l]])
+    ## Save
+    saveRDS(reconstruction, file = paste0("1_Data/1_5_DENV",'/', locations[l], '_reconstruction_', ORFs[o], '.rds'))
+  }
+}
+
+```
+
+**Error in { : task 4 failed - "length of phenotypic and of phylogenetic
+data do not match."**
+
+1/25/24: todo: Denv 4 doesn't work
+
+# ***1/26:24 ADD ORFS***
+
+### Load in reconstructions
+
+```{r eval=FALSE}
+#Loading In reconstrcutions 
+
+########################################################################################################################################
+## 2 - association scores
+########################################################################################################################################
+
+########################################################################################################################################
+## Load AA data
+########################################################################################################################################
+## Vcfs
+
+library(here)
+
+
+orf_mapping <- list(
+  "whole_genome" = list(
+    "Dengue_1" = "d1_n1026_bioconda.vcf",
+    "Dengue_2" = "d2_n796_bioconda.vcf",
+    "Dengue_3" = "d3_n625_degap_bioconda.vcf",
+    "Dengue_4" = "d4_n477_bioconda.vcf"
+  ),
+  "2Kfrag" = "protein 2K underscore_bioconda.vcf",
+  "NS4B" = "nonstructural protein NS4B underscore_bioconda.vcf",
+  "NS4A" = "nonstructural protein NS4A underscore_bioconda.vcf",
+  "NS3" = "nonstructural protein NS3 underscore_bioconda.vcf",
+  "NS2B" = "nonstructural protein NS2B underscore_bioconda.vcf",
+  "NS1" = "nonstructural protein NS1 underscore_bioconda.vcf",
+  "prM" = "membrane glycoprotein precursor M underscore_bioconda.vcf",
+  "E" = "envelope protein E underscore_bioconda.vcf",
+  "C" = "anchored capsid protein C underscore_bioconda.vcf",
+  "NS5" = "RNA-dependent RNA polymerase NS5 underscore_bioconda.vcf"
+)
+
+# Define VCF file paths dynamically using here()
+vcf_files <- list()
+for (orf in names(orf_mapping)) {
+  if (orf == "whole_genome") {
+    for (loc in locations) {
+      file_path <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", orf_mapping[[orf]][[loc]])
+      vcf_files[[paste0(loc, "_", orf)]] <- file_path
+    }
+  } else {
+    file_path <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "gene", orf_mapping[[orf]])
+    vcf_files[[orf]] <- file_path
+  }
+}
+
+
+# Load and process each VCF file
+vcf_data <- list()
+for (key in names(vcf_files)) {
+  file_path <- vcf_files[[key]]
+  
+  if (file.exists(file_path)) {
+    data_vcf <- read.vcfR(file_path)
+    fixed <- as.data.frame(data_vcf@fix)  # SNP positions
+    gt <- as.data.frame(data_vcf@gt)      # Genotype calls
+    combined_data <- cbind(fixed, gt)
+    
+    vcf_data[[key]] <- combined_data  # Store in list
+  } else {
+    message(paste("Skipping missing file:", file_path))
+  }
+}
+
+#Because Noemie's vcf files were made in R they can be parsed as csvs. Consider if using noemie vcf script:
+# data_vcf_world_M = read.csv(file = "2_analysis_index/3_snp_association/vcfs_and_AA_reconstructions/World/nextstrain_ncov_gisaid_global_all-time_timetree_M.vcf", sep = '\t')
+
+## Reconstructions, setting the idx_min or the earliest observed sample in the dataset. Reference for aligning time points.
+idx_mins <- list()
+
+for (x in seq_along(dataset_with_nodes_all)) {
+  # current iteration
+  current_dataset <- dataset_with_nodes_all[[x]]
+  
+  # Calculate idx_min
+  idx_min <- which.min(current_dataset$time[which(current_dataset$is.node == 'no')])
+  
+  # Dynamically name
+  idx_min_name <- paste0("idx_min_", x)
+  
+  # Assign
+  assign(idx_min_name, idx_min)
+  
+  #Add to list
+  idx_mins[[idx_min_name]] <- idx_min
+}
+
+for (loc in locations) {
+  current_dataset <- dataset_with_nodes_all[[loc]]  
+  
+  if (!is.null(current_dataset)) {
+    idx_min <- which.min(current_dataset$time[which(current_dataset$is.node == 'no')])
+    idx_mins[[loc]] <- idx_min
+  }
+}
+
+# Define reconstruction file paths dynamically
+reconstruction_files <- list()
+for (loc in locations) {
+  for (orf in names(orf_mapping)) {
+    file_path <- here("1_Data", "1_5_DENV", paste0(loc, "_reconstruction_", orf, ".rds"))
+    reconstruction_files[[paste0(loc, "_", orf)]] <- file_path
+  }
+}
+# Load reconstruction data
+reconstructions <- list()
+for (key in names(reconstruction_files)) {
+  file_path <- reconstruction_files[[key]]
+  
+  if (file.exists(file_path)) {
+    reconstructions[[key]] <- readRDS(file_path)
+  } else {
+    message(paste("Skipping missing file:", file_path))
+  }
+}
+
+# Update the inferred reconstruction for each (location, ORF)
+for (loc in locations) {
+  for (orf in names(orf_mapping)) {
+    key <- paste0(loc, "_", orf)
+    
+    if (!is.null(reconstructions[[key]]) &&
+        !is.null(idx_mins[[loc]])) {
+      current_reconstruction <- reconstructions[[key]]
+      current_tree <- tree_DENV_all[[loc]]  # Assuming tree_DENV_all is a named list
+      current_idx_min <- idx_mins[[loc]]
+      
+      # Update inferred codon reconstruction at the MRCA
+      current_reconstruction$dataset_with_inferred_reconstruction_codon[current_tree$Nnode + 2, 5:ncol(current_reconstruction$dataset_with_inferred_reconstruction_codon)] <-
+        current_reconstruction$dataset_with_inferred_reconstruction_codon[current_idx_min, 5:ncol(current_reconstruction$dataset_with_inferred_reconstruction_codon)]
+      
+      # Update inferred amino acid reconstruction at the MRCA
+      current_reconstruction$dataset_with_inferred_reconstruction_AA[current_tree$Nnode + 2, 5:ncol(current_reconstruction$dataset_with_inferred_reconstruction_AA)] <-
+        current_reconstruction$dataset_with_inferred_reconstruction_AA[current_idx_min, 5:ncol(current_reconstruction$dataset_with_inferred_reconstruction_AA)]
+      
+      # Extract possible SNPs
+      current_reconstruction$possible_snps <- colnames(current_reconstruction$dataset_with_inferred_reconstruction_codon)[-(1:4)]
+    }
+    
+    
+    
+    # Store updated reconstruction
+    reconstructions[[key]] <- current_reconstruction
+  }
+}
+
+
+
+#1/25/25 TODO Update loop from 3 to 4 once DENV4 works
+#TODO 02/12/25: currently reconstruct_node_states does not output both dataset_with_inferred_reconstruction_codon and with AA sepreately so 
+
+
+
+```
+
+1/25/25 TODO Update loop from 3 to 4 once DENV4 works
+
+Use the function *association_scores_per_group* to compute the
+association score of each mutation to each group. The function takes in
+entry:
+
+-   *dataset_with_nodes*
+-   *dataset_with_inferred_reconstruction*: a dataframe with the same
+    first columns as *dataset_with_nodes* and then one column per snp
+    its ancestral reconstruction along all nodes
+-   *tree*: timed tree
+-   *possible_snps*: the list of mutations that need to be considered
+-   *upstream_window*: for each group, how far upstream to consider
+    mutations
+-   *downstream_window*: for each group, consider nodes from the MRCA up
+    to this time
+
+The codes to perform this analysis on the SARS-CoV-2 data is available
+in the file *2_4_Lineage_Defining_mutations.R*, in the folder
+`2_Functions`.
+
+1/25/25: todo Determining upsteam_window and downstream window. Kept as
+sars defaults
+
+```{r SNP_associations}
+########################################################################################################################################
+## For each SNP, look at defining mutation of each group
+########################################################################################################################################
+
+## Time window
+upstream_window = 2 # years (not going to the root)
+downstream_window = 10 # years (considering all the group)
+
+
+```
+
+```{r}
+
+
+## Denv1
+scores_DENV1_thai = association_scores_per_group(dataset_with_nodes = dataset_with_nodes_1,
+                                                     dataset_with_inferred_reconstruction = Dengue_1_reconstruction_whole_genome$dataset_with_inferred_resonstruction, 
+                                                     tree = tree_DENV1_thai, 
+                                                     possible_snps = Dengue_1_reconstruction_whole_genome$possible_snps, 
+                                                     upstream_window = upstream_window, 
+                                                     downstream_window = downstream_window)
+
+## Denv2 
+scores_DENV2_thai = association_scores_per_group(dataset_with_nodes = dataset_with_nodes_2,
+                                                     dataset_with_inferred_reconstruction = reconstruction_thai_Denv2$dataset_with_inferred_resonstruction, 
+                                                     tree = tree_DENV2_thai, 
+                                                     possible_snps = reconstruction_thai_Denv2$possible_snps, 
+                                                     upstream_window = upstream_window, 
+                                                     downstream_window = downstream_window)
+
+## Denv3 
+scores_DENV3_thai = association_scores_per_group(dataset_with_nodes = dataset_with_nodes_3,
+                                                     dataset_with_inferred_reconstruction = reconstruction_thai_Denv3$dataset_with_inferred_resonstruction, 
+                                                     tree = tree_DENV3_thai, 
+                                                     possible_snps = reconstruction_thai_Denv3$possible_snps, 
+                                                     upstream_window = upstream_window, 
+                                                     downstream_window = downstream_window)
+
+# ## Denv4 
+# scores_DENV4_thai = association_scores_per_group(dataset_with_nodes = dataset_with_nodes_4,
+#                                                      dataset_with_inferred_reconstruction = reconstruction_thai_Denv4$dataset_with_inferred_resonstruction, 
+#                                                      tree = tree_DENV4_thai, 
+#                                                      possible_snps = reconstruction_thai_Denv4$possible_snps, 
+#                                                      upstream_window = upstream_window, 
+#                                                      downstream_window = downstream_window)
+
+save.image('Raw_scores_detection_DENV1to3_thai_01_25_2025.Rdata')
+########################################################################################################################################
+
+```
+
+## Find significant snps
+
+```{r}
+########################################################################################################################################
+## Find significant snps
+########################################################################################################################################
+# Extract and process edge lineage tree for DENV1
+edge_lineage_tree_1 = split_1$lineage_tree$edge
+edge_lineage_tree_1[, 1] = split_1$tip_and_nodes_groups[match(edge_lineage_tree_1[, 1], names(split_1$tip_and_nodes_groups))]
+edge_lineage_tree_1[, 2] = split_1$tip_and_nodes_groups[match(edge_lineage_tree_1[, 2], names(split_1$tip_and_nodes_groups))]
+edge_lineage_tree_1_snps = as.list(edge_lineage_tree_1)
+
+# Initialize results list for significant SNPs
+scores_DENV1_thai_sig_all_codons = scores_DENV1_thai
+sig_threshold = 0.8
+
+## DAF changed because split_X$tip_and_nodes_groups always has an NA value
+# Loop through each lineage node
+
+for (i in seq_along(scores_DENV1_thai)) {
+  # Find parent and child nodes
+  tmp = as.numeric(edge_lineage_tree_1[which(edge_lineage_tree_1[, 2] == i), ])
+  
+  # Check if `tmp` contains valid indices
+  if (is.null(tmp) || length(tmp) == 0 || is.na(tmp[1])) {
+    # Handle cases where `tmp` is invalid or missing
+    ans = NULL
+    des = NULL
+  } else {
+    # Extract significant SNPs from the parent node
+    if (!is.na(tmp[1]) && tmp[1] <= length(scores_DENV1_thai)) {
+      ans = names(which(scores_DENV1_thai[[tmp[1]]] > sig_threshold))
+    } else {
+      ans = NULL
+    }
+
+    # Extract significant SNPs from the current node
+    if (!is.na(tmp[2]) && tmp[2] <= length(scores_DENV1_thai)) {
+      des = names(which(scores_DENV1_thai[[tmp[2]]] > sig_threshold))
+    } else {
+      des = NULL
+    }
+  }
+
+  # Remove SNPs already present in the parent node
+  if (!is.null(des)) {
+    res = des[!des %in% ans]
+  } else {
+    res = NULL
+  }
+
+  # Store significant SNPs for the current node
+  scores_DENV1_thai_sig_all_codons[[i]] = res
+}
+
+scores_DENV1_thai_sig_all_codons
+
+########################################################################################################################################
+## Full genome, substitutions (NS, ie AA change) with signal
+########################################################################################################################################
+
+library(readxl)
+library(stringr)
+
+
+# Read the 3rd sheet
+genes <- read_excel("1_Data/1_5_DENV/DenMutationsEpiPosStica2022.xlsx", sheet = 3)
+
+serotype_to_plot <- genes 
+serotype_to_plot <- genes[which(genes$Serotype == "DENV1"),]
+
+genes_to_plot <- serotype_to_plot
+genes_to_plot = genes_to_plot[-which(genes_to_plot$Protein == '2Kfrag' | genes_to_plot$Protein == 'C_Er_Anchor'),]
+colors = MetBrewer::met.brewer(name="Derain", n=11)
+
+
+
+
+scores_dengue_full = NULL
+
+# Loop over each protein in the genes data frame
+for (i in 1:nrow(genes_to_plot)) {
+  # Get start and end positions for the current protein
+  start_pos = genes_to_plot$Genome_Start[i]
+  end_pos = genes_to_plot$Genome_End[i]
+  
+  # Extract significant scores for the current protein based on nucleotide positions
+  protein_scores = lapply(scores_DENV1_thai_sig_all_codons, function(x) {
+    # Filter scores within the protein range
+    x[sapply(str_split(x, "\\|"), function(y) {
+      pos = as.numeric(y[2])
+      pos >= start_pos & pos <= end_pos
+    })]
+  })
+  
+  # Combine scores across nodes and extract the maximum score for each nucleotide
+  if (length(protein_scores) > 0) {
+    tmp = unlist(protein_scores)
+    tmp_values = sapply(str_split(tmp, "\\|"), function(y) as.numeric(y[1]))  # Extract score values
+    tmp_positions = sapply(str_split(tmp, "\\|"), function(y) as.numeric(y[2]))  # Extract positions
+    names(tmp_values) = tmp_positions  # Assign nucleotide positions as names
+    scores_dengue_full = c(scores_dengue_full, tmp_values)
+  }
+}
+
+scores_dengue_full = scores_dengue_full[order(as.numeric(names(scores_dengue_full)))]
+
+valid_scores = scores_dengue_full[as.numeric(scores_dengue_full) <= 0]
+
+
+# Plot genome-wide density of significant scores
+plot_scores_genome_density = function() {
+  par(oma = c(0, 0, 0, 0), mar = c(2, 2, 0, 0), mgp = c(0, 0.1, 0), family = 'Arial',
+      cex.axis = 0.3, cex.lab = 0.3, cex.main = 0.4, cex.sub = 0.3)
+  
+  # Generate density of scores
+  dens = density(as.numeric(names(scores_dengue_full)), 
+                 weights = scores_dengue_full / sum(scores_dengue_full), 
+                 bw = 50, n = 3000)
+  
+  # Initialize blank plot
+  plot(NULL, xlim = c(0, max(genes_to_plot$Genome_End)), ylim = c(0, max(dens$y)), 
+       bty = 'n', yaxt = 'n', ylab = '', xlab = 'Genome Position')
+  axis(2, las = 2)
+  
+  # Highlight protein regions
+  colors = MetBrewer::met.brewer(name = "Derain", n = nrow(genes_to_plot))
+  for (i in 1:nrow(genes_to_plot)) {
+    polygon(x = c(genes_to_plot$Genome_Start[i], genes_to_plot$Genome_End[i],
+                  genes_to_plot$Genome_End[i], genes_to_plot$Genome_Start[i]), 
+            y = c(0, 0, max(dens$y), max(dens$y)), 
+            border = F, col = adjustcolor(colors[i], alpha.f = 0.25))
+  }
+  
+  # Overlay density plot
+  polygon(x = c(dens$x, rev(dens$x)), 
+          y = c(dens$y, rep(0, length(dens$y))), 
+          border = F, col = 'grey30')
+}
+
+# Plot the scores
+plot_scores_genome_density()
+
+# Save the plot
+ggsave(filename = 'Plot_scores_dengue_genome_density.pdf', 
+       plot = ggdraw(plot_scores_genome_density), 
+       device = 'pdf', scale = 1,
+       width = 10, height = 5, units = 'cm')
+```
+
+```{r}
+
+```
+
+STOPP HERE AND GO TO DF EDITS 2_4 lineage defining mutations
+
+```{r}
+
+
+########################################################################################################################################
+## Preparation data tips
+########################################################################################################################################
+
+
+data_vcf_d1_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d1_n1026 assembled to NC_001477.vcf")
+data_vcf_d2_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d2_n796 assembled to NC_001474.vcf")
+data_vcf_d3_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d3_n625_degap assembled to NC_001475.vcf")
+data_vcf_d4_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d4_n477 assembled to NC_002640.vcf")
+
+
+data_vcf_d3_full_test = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/test_d3_n625_degap Copy assembled to NC_001475.vcf")
+
+# Load the VCF file
+vcf <- data_vcf_d3_full
+
+# Extract the fixed fields and genotype (GT) data
+fixed <- as.data.frame(vcf@fix)
+gt <- as.data.frame(vcf@gt)
+
+# Combine fixed fields with genotype data
+vcf_data <- cbind(fixed, gt)
+
+# Rename columns for samples
+colnames(vcf_data) <- c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", paste0("SAMPLE", 1:ncol(gt)))
+
+# Save the reformatted VCF
+write.table(vcf_data, "formatted_vcf.vcf", sep = "\t", quote = FALSE, row.names = FALSE)
+
+vcf_e = read.vcfR("~/Downloads/envelope protein E.vcf")
+
+data_vcf_list1 = list(data_vcf_d1_full)
+data_vcf_list2 = list(data_vcf_d2_full)
+data_vcf_list3 = list(data_vcf_d3_full)
+data_vcf_list4 = list(data_vcf_d4_full)
+
+
+
+
+## Create dataset with names of each sequence, time sampling, prn type etc
+add_snp_data = function(dataset_tips, names_seqs, data_vcf_list){
+  for(i in 1:length(data_vcf_list)){
+    tmp = data_vcf_list[[i]]
+    tmp = cbind(tmp, rep(NA, nrow(tmp)))
+    a = match(names_seqs, unlist(lapply(colnames(data_vcf_list[[i]]), function(x)strsplit(x, split = 'X')[[1]][2])))
+    a[which(is.na(a))] = ncol(tmp)
+    df_tmp = t(tmp[,a])
+    colnames(df_tmp) = paste0(data_vcf_list[[i]]$REF, data_vcf_list[[i]]$POS, data_vcf_list[[i]]$ALT, '_',names(data_vcf_list)[i])
+    dataset_tips = cbind(dataset_tips, df_tmp)
+  }
+  return(dataset_tips)
+}
+  
+## DENV1
+dataset_tips_d1 = data.frame('ID' = 1:length(names_seqs_1),
+                          'name_seq' = names_seqs_1,
+                          'time' = meta_data_d1$time[match(names_seqs_d1, meta_data_d1$shortname)])
+dataset_tips_d1 = add_snp_data(dataset_tips = dataset_tips_d1, 
+                               names_seqs = names_seqs_d1, 
+                               data_vcf_list)
+
+## DENV2
+dataset_tips_d2 = data.frame('ID' = 1:length(names_seqs_d2),
+                          'name_seq' = names_seqs_d2,
+                          'time' = meta_data_d2$time[match(names_seqs_d2, meta_data_d2$shortname)])
+dataset_tips_d2 = add_snp_data(dataset_tips = dataset_tips_d2, names_seqs = names_seqs_d2, data_vcf_list)
+
+## DENV3
+dataset_tips_d3 = data.frame('ID' = 1:length(names_seqs_d3),
+                          'name_seq' = names_seqs_d3,
+                          'time' = meta_data_d3$time[match(names_seqs_d3, meta_data_d3$shortname)])
+dataset_tips_d3 = add_snp_data(dataset_tips = dataset_tips_d3, names_seqs = names_seqs_d3, data_vcf_list)
+
+## DENV4
+dataset_tips_d4 = data.frame('ID' = 1:length(names_seqs_d4),
+                          'name_seq' = names_seqs_d4,
+                          'time' = meta_data_d4$time[match(names_seqs_d4, meta_data_d4$shortname)])
+dataset_tips_d4 = add_snp_data(dataset_tips = dataset_tips_d4, names_seqs = names_seqs_d4, data_vcf_list)
+```
+
+```{r}
+reconstruction <- reconstruct_node_states(tree_DENV1_world, 
+                                          dataset_tips, 
+                                          dataset_with_nodes_1, 
+                                          min_prop = 0.01, 
+                                          max_prop = 0.99, 
+                                          names_seqs_1)
+
+
+```
