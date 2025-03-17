@@ -22,7 +22,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r, echo = F, eval=T}
 ## Not printed, set directory
-#setwd('~/Dropbox/THD/Index_paper_methods_Sc2_H3N2_BP_TB/paper-index-fitness-dynamics-trees/')
+here::i_am("DENV_3_fitness.Rmd")
+
 ```
 
 First, source all the necessary functions:
@@ -236,12 +237,10 @@ association_scores_per_group = function(dataset_with_nodes, dataset_with_inferre
   ## calculate association scores between SNPs and phylogenetic groups, considering evolutionary and temporal relationships.
   ## The scores quantify how well specific SNPs distinguish groups of nodes/tips in the tree.
 }
-head(scores_DENV1_thai[[7]], 1)
-glimpse(scores_DENV1_thai[[7]])
 
 ```
 
-**For the association scores:**
+**Explainer: For the association scores:**
 
 `score3 <- (sum((1 - Px)*(1 - Sx), na.rm=TRUE) + sum(Px*Sx, na.rm=TRUE)) / length(Px)`
 
@@ -322,6 +321,68 @@ library(foreach)
 #node_matches <- grep("8546/93DEN2", tree_DENV$node.label, value = TRUE)
 
 
+# dataset_with_nodes_3$clade_color <- ifelse(grepl("3XX", dataset_with_nodes_3$clade), "red", "grey")
+# 
+# three_xx_tips <- dataset_with_nodes_3 %>%
+#   filter(grepl("3XX", clade)) %>%
+#   pull(ID)  
+# tree_edges <- tree_DENV3$edge
+# tip_clades <- dataset_with_nodes_3 %>%
+#   filter(is.node == "no") %>%  # Only tips (not internal nodes)
+#   select(ID, clade)
+# 
+# infer_internal_clade <- function(parent_node, tree_edges, tip_clades) {
+#   # Find all children of this parent node
+#   child_nodes <- tree_edges[tree_edges[, 1] == parent_node, 2]
+#   
+#   # Retrieve clades of child nodes if they are tips
+#   child_clades <- tip_clades %>%
+#     filter(ID %in% child_nodes) %>%
+#     pull(clade) %>%
+#     unique()
+#   # Case 1: If all child clades are identical, assign that clade
+#   if (length(child_clades) == 1) {
+#     return(child_clades)
+#   }
+#   
+#   # Case 2: If children are a mix of `3XX` and `3I` or `3II`, assign the non-3XX clade
+#   if ("3XX" %in% child_clades && any(child_clades %in% c("3I", "3II"))) {
+#     return(setdiff(child_clades, "3XX"))  # Return non-3XX clade
+#   }
+#   
+#   # Case 3: If both children are `3XX` or a mix of `3I` and `3II`, assign NA
+#   return(NA)
+# }
+# internal_nodes <- unique(tree_edges[, 1])
+# # Apply clade inference to all internal nodes
+# internal_node_clades <- data.frame(
+#   ID = internal_nodes,
+#   inferred_clade = sapply(internal_nodes, infer_internal_clade, tree_edges, tip_clades)
+# )
+# 
+# 
+# three_xx_parents <- tree_edges[tree_edges[, 2] %in% three_xx_tips, ] 
+# parent_nodes <- unique(three_xx_parents[, 1])
+# parent_clades <- dataset_with_nodes_3 %>%
+#   filter(ID %in% parent_nodes) %>%
+#   select(ID, clade)
+# 
+# # Merge inferred clades back into dataset_with_nodes_3
+# dataset_with_nodes_3 <- dataset_with_nodes_3 %>%
+#   left_join(internal_node_clades, by = "ID") %>%
+#   mutate(clade = ifelse(is.na(clade), inferred_clade, clade)) %>%  # Fill missing clades
+#   select(-inferred_clade)
+
+# three_xx_tips <- dataset_with_nodes_3 %>%
+#   filter(grepl("3XX", clade)) %>%
+#   pull(name_seq)  # Extract sequence names with 3XX clade
+# 
+# 
+# View(dataset_with_nodes_3_red)
+# # Create a color mapping for visualization
+# dataset_with_nodes_3_red <- dataset_with_nodes_3 %>%
+#   mutate(visual_color = ifelse(name_seq %in% three_xx_tips, "red", "gray80"))  # Highlight 3XX in red, others in gray
+
 ```
 
 ### Name code format
@@ -398,9 +459,12 @@ clades_seqs_4 = sapply(names_seqs_4, function(x) str_split(x, pattern = '_')[[1]
 
 
 
+
+
+
 ```
 
-## Compute the index dynamics
+## Explainer: Compute the index dynamics
 
 To compute the index of all nodes, use the function *compute.index*, you
 will need different inputs:
@@ -556,6 +620,7 @@ dataset_with_nodes_4 = data.frame('ID' = c(1:n_seq_4, n_seq_4+(1:(n_seq_4-1))),
 # Maybe add serotype once it works?
 ```
 
+
 #### Compute index of every tip and node
 
 ```{r, eval=T}
@@ -594,6 +659,81 @@ dataset_with_nodes_4$index = compute.index(time_distance_mat = genetic_distance_
                                          genome_length = genome_length)
 
 ```
+
+```{r}
+#Fixing 3XX
+
+three_xx_tips <- dataset_with_nodes_3 %>%
+  filter(grepl("3XX", clade)) %>%
+  pull(name_seq)  # Extract sequence names with 3XX clade
+
+
+# Create a color mapping for visualization
+dataset_with_nodes_3_red <- dataset_with_nodes_3 %>%
+  mutate(visual_color = ifelse(name_seq %in% three_xx_tips, "red", "gray80"))  # Highlight 3XX in red, others in gray
+
+min_year = 1965
+max_year = 2015
+
+## Tree
+plot(tree_DENV3, show.tip.label = FALSE, 
+     edge.color = 'grey', edge.width = 0.25,
+     x.lim = c(min_year, max_year)-root_height_3)
+tiplabels(pch = 16, col = dataset_with_nodes_3_red$visual_color, cex = 0.3)
+axisPhylo_NL(side = 1, root.time = root_height_3, backward = F,
+             at_axis = seq(min_year, max_year, 0.5)-root_height_3,
+             lab_axis = seq(min_year, max_year, 0.5), lwd = 0.5)
+
+
+
+
+plot_tree_world_groups_3 <- ggtree(tree_DENV3, 
+                                   mrsd = lubridate::date_decimal(max(times_seqs_3)), 
+                                   size = 0.10,
+                                   aes(color = as.character(dataset_with_nodes_3_red$visual_color), 
+                                       label = dataset_with_nodes_3_red$name_seq)) + 
+  scale_color_manual(values = c("red" = "red", "gray80" = "gray80")) + 
+  theme_tree2()
+
+# Convert to plotly interactive plot
+ggplotly(plot_tree_world_groups_3, tooltip = "label")
+
+
+
+# "1994.5_Thailand_3XX_AY876494/94" "1994.5_Thailand_3XX_AY923865/94" "1998.5_Thailand_3XX_AY676348/98" "1998.5_Thailand_3XX_AY676349/98"
+#  [5] "1999.564_L99_3XX_072.1"          "1999.564_L99_3XX_076.1"          "1999.648_R99_3XX_081.1"          "1999.731_R99_3XX_109.1"         
+#  [9] "2000.314_R00_3XX_036.1"          "2000.731_R00_3XX_320.1"          "2000.814_R00_3XX_504.1"          "2000.896_H00_3XX_093.1"         
+# [13] "2001.563_P01_3XX_476.1"          "2001.5_P00_3XX_020.1"            "2001.647_P01_3XX_560.1"          "2001.647_R01_3XX_841.1"         
+# [17] "2002.063_R01_3XX_102.1"          "2002.5_H02_3XX_096.1"            "2002.647_N02_3XX_722.1"          "2002.73_N02_3XX_763.1"          
+# [21] "2003.313_N03_3XX_054.1"          "2003.5_R03_3XX_005.1"            "2003.897_H03_3XX_169.1"         "2004.063_P03_3XX_254.1"         
+# [25] "2007.063_H07_3XX_006.1"= 3III          "2007.563_R07_3XX_266.1" = = 3III         "2007.73_R07_3XX_450.1"           "2008.563_R08_3XX_557.1"         
+# [29] "2008.5_P07_3XX_399.1"            "2008.5_P08_3XX_001.1"            "2008.73_P08_3XX_268.1"  = 3III         "2008.813_H08_3XX_260.1"         
+# [33] "2009.063_H09_3XX_025.1"          "2009.5_P09_3XX_094.1"            "2009.73_H09_3XX_226.1"           "2009.813_R09_3XX_409.1"         
+# [37] "2009.914_R09_3XX_505.1"= 3III          "2010.063_R10_3XX_002.1"          "2010.5_H10_3XX_173.1"            "2010.647_P10_3XX_011.1"  = 3III       
+# [41] "2010.73_H10_3XX_350.1"           "2011.147_H11_3XX_027.1"          "2012.063_R12_3XX_019.1"      
+
+
+three_iii_reassign <- c(
+  "2007.063_H07_3XX_006.1",
+  "2007.563_R07_3XX_266.1",
+  "2008.73_P08_3XX_268.1",
+  "2009.914_R09_3XX_505.1",
+  "2010.647_P10_3XX_011.1"
+)
+
+dataset_with_nodes_3 <- dataset_with_nodes_3 %>%
+  mutate(clade = case_when(
+    name_seq %in% three_iii_reassign ~ "3III",  # Assign 3III to specific sequences
+    grepl("3XX", clade) ~ "3II",  # Default: Assign all other 3XX to 3II
+    TRUE ~ clade  # Keep existing assignments
+  ))
+
+
+
+```
+
+
+
 
 #### Plot tree & index below, with colors from clades
 
@@ -652,7 +792,7 @@ Then plot the tree and index: DENV3
 par(mfrow = c(2,1), oma = c(0,0,0,0), mar = c(4,4,0,0))
 
 #Denv3 data ranges from 1965 to 2014
-min_year = 1992
+min_year = 1965
 max_year = 2015
 
 ## Tree
@@ -954,8 +1094,8 @@ number_cores = 8
 
 max_stepwise_deviance_explained_threshold = 0
 max_groups_found_3 = 7
-max_groups_found_2 = 4
-max_groups_found_1 = 10
+max_groups_found_2 = 3
+max_groups_found_1 = 8
 max_groups_found_4 = 2
 max_groups_found = 30
 stepwise_AIC_threshold = 0
@@ -1085,24 +1225,28 @@ print(end_time - start_time)
 Instead, you may wish to load or write the results:
 
 ```{r, eval = T}
-potential_splits_3 = readRDS("3_Outputs/potential_splits_DENV3_timescale7_wind1_2025-01-06_2234.rds")
-potential_splits_2 = readRDS("3_Outputs/potential_splits_DENV2_timescale7_wind1_2025-01-06_2234.rds")
-potential_splits_1 = readRDS("3_Outputs/potential_splits_DENV1_timescale7_wind1_2025-01-06_2234.rds")
-potential_splits_4 = readRDS("3_Outputs/potential_splits_DENV4_timescale7_wind1_2025-01-06_2234.rds")
+potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-03-17_1527.rds")
+potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-03-17_1527.rds")
+potential_splits_1 = readRDS("4_Output_Data/potential_splits_DENV1_timescale7_wind1_2025-03-17_1527.rds")
+potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-03-17_1527.rds")
+
 
 st=format(Sys.time(), "%Y-%m-%d_%H%M")
 ##Write
 
-# file_name_3 <- glue("3_Outputs/potential_splits_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
+library(glue)
+library(readr)
+
+# file_name_3 <- glue("4_Output_Data/potential_splits_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
 # write_rds(potential_splits_3, file_name_3)
 # 
-# file_name_2 <- glue("3_Outputs/potential_splits_DENV2_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_2 <- glue("4_Output_Data/potential_splits_DENV2_timescale{timescale}_wind{wind}_{st}.rds")
 # write_rds(potential_splits_2, file_name_2)
 # 
-# file_name_1 <- glue("3_Outputs/potential_splits_DENV1_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_1 <- glue("4_Output_Data/potential_splits_DENV1_timescale{timescale}_wind{wind}_{st}.rds")
 # write_rds(potential_splits_1, file_name_1)
 # 
-# file_name_4 <- glue("3_Outputs/potential_splits_DENV4_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_4 <- glue("4_Output_Data/potential_splits_DENV4_timescale{timescale}_wind{wind}_{st}.rds")
 # write_rds(potential_splits_4, file_name_4)
 
 ```
@@ -1112,7 +1256,7 @@ groups. Here for simplicity we directly chose max_groups_found_3 = 7. To
 decide on this many groups, we initially ran the algorithm up to 30
 groups (though it converged at 14).
 
-```{r}
+```{r testing groups}
 
 png('DENV_plots.png', width = 1800, height = 1800, res = 300)
 par(mfrow = c(4, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5), 
@@ -1173,7 +1317,7 @@ grid.raster(img)                 # Display the image
 Optimize the number of groups: set the minimum number of sequences per
 group to 30, with a minimum frequency of 1%.
 
-```{r, eval = T}
+```{r minimum groups, eval = T}
 
 for (i in 1:4) {
   ## Dynamically retrieve the relevant timed tree and dataset_with_nodes
