@@ -831,6 +831,13 @@ legend('topright',
 Dynamically
 
 ```{r}
+
+
+library(dsmisc)
+
+
+
+
 for (i in 1:4) {
   
 # Retrieve relevant variables
@@ -845,7 +852,7 @@ for (i in 1:4) {
   max_year <- 2015
   
   # Two-panel plot setup
-  png(filename = paste0("3_Outputs/","Classical_Clades_panel_plot_DENV_", i, ".png"), width = 1800, height = 1800, res = 300)
+  png(filename = paste0("3_Output_Figures/","Classical_Clades_panel_plot_DENV_", i, time_stamp(), ".png"), width = 1800, height = 1800, res = 300)
   par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
   
   ## Tree plot
@@ -1078,12 +1085,13 @@ per group (*group_count_threshold*) or a minimum frequency of each group
 
 Parameters for the detection:
 
-```{r, eval = T, eval=FALSE}
+```{r model params, eval =TRUE}
 time_window_initial = 2030;
 time_window_increment = 100;
 p_value_smooth = 0.05
 weight_by_time = 0.1
 k_smooth = -1
+threshold_node_support = 1/(29903*0.00081)
 plot_screening = F
 min_descendants_per_tested_node = 30
 min_group_size = 30
@@ -1115,7 +1123,7 @@ potential_splits_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
                                                  metadata = dataset_with_nodes_3,
                                                  node_support = tree_DENV3$edge.length[match((n_seq_3+1):(2*n_seq_3-1),
                                                                                             tree_DENV3$edge[,2])],
-                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 threshold_node_support = threshold_node_support,
                                                  time_window_initial = time_window_initial,
                                                  time_window_increment = time_window_increment,
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
@@ -1225,13 +1233,16 @@ print(end_time - start_time)
 Instead, you may wish to load or write the results:
 
 ```{r, eval = T}
-potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-03-17_1527.rds")
-potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-03-17_1527.rds")
-potential_splits_1 = readRDS("4_Output_Data/potential_splits_DENV1_timescale7_wind1_2025-03-17_1527.rds")
-potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-03-17_1527.rds")
-
 
 st=format(Sys.time(), "%Y-%m-%d_%H%M")
+
+potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-03-18_1002.rds")
+potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-03-18_1002.rds")
+potential_splits_1 = readRDS("4_Output_Data/potential_splits_DENV1_timescale7_wind1_2025-03-18_1002.rds")
+potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-03-18_1002.rds")
+
+
+
 ##Write
 
 library(glue)
@@ -1256,7 +1267,7 @@ groups. Here for simplicity we directly chose max_groups_found_3 = 7. To
 decide on this many groups, we initially ran the algorithm up to 30
 groups (though it converged at 14).
 
-```{r testing groups}
+```{r linlog group plot}
 
 png('DENV_plots.png', width = 1800, height = 1800, res = 300)
 par(mfrow = c(4, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5), 
@@ -1404,6 +1415,11 @@ for (i in 1:4) {
 Plot the tree and index colored with the new groups:
 
 ```{r, eval = T}
+
+# TODO: this works but it's clunky to save as other formats. Ideally you'd save this via http://stackoverflow.com/questions/48132169/export-r-plot-to-multiple-formats
+# OR you'd convert to ggplot and use ggsave
+
+
 for (i in 1:4) {
   ## Dynamically retrieve the relevant variables
   tree <- get(paste0('tree_DENV', i))
@@ -1419,6 +1435,9 @@ for (i in 1:4) {
   wind <- get('wind')
   
   ## Plotting
+  
+  svglite(filename = paste0("test", i, ".svg" ), width = 8, height = 10)
+  
   par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
   
   ## Tree
@@ -1454,14 +1473,15 @@ for (i in 1:4) {
          fill = colors_groups, border = colors_groups,
          cex = 0.5, bty = 'n', ncol = 5)
   
-  ## Dynamically store the index plot
-  assign(paste0('index_plot_', i), index_plot)
+  ## Save
+  dev.off()
 }
 
-index_plot_1
-index_plot_2
-index_plot_3
-index_plot_4
+
+
+library(svglite)
+
+
 
 ```
 
