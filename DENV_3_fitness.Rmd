@@ -1486,7 +1486,7 @@ library(svglite)
 ```
 
 
-## The tree isn't sclaed correclty becuase Noemie uses AxisPhylo_NL to rescale her X axis 
+## The tree isn't sclaed correctly becuase Noemie uses AxisPhylo_NL to rescale her X axis 
 
 ```{r newindexandtreeviaggplot, eval=FALSE}
 tree <- get(paste0('tree_DENV', i))
@@ -1944,7 +1944,7 @@ for (i in 1:4) {
   )
   
   # Save the static combined plot
-  ggsave(filename = paste0("3_Outputs/","combined_plot_DENV_", i, ".png"), plot = combined_plot, width = 12, height = 6, dpi = 300)
+  ggsave(filename = paste0("3_Output_Figures/","combined_plot_DENV_", i, "_" , st, ".png"), plot = combined_plot, width = 12, height = 6, dpi = 300)
   
   # Side-by-side interactive plot using ggplotly and subplot
   interactive_plot <- ggplotly(
@@ -1952,7 +1952,7 @@ for (i in 1:4) {
   )
   
   # Save the interactive plot as an HTML file
-  htmlwidgets::saveWidget(interactive_plot, file = paste0("3_Outputs/","interactive_plot_DENV_", i, ".html"))
+  htmlwidgets::saveWidget(interactive_plot, file = paste0("3_Output_Figures/","interactive_plot_DENV_", i, st,".html"))
 }
 
 ```
@@ -1965,13 +1965,16 @@ Quantify the fitness of each group you can run the code (this steps
 takes approximately \<5 min on 3 cores):
 
 ```{r, eval = F, results = 'hide', warning=FALSE, message=FALSE}
-options(mc.cores = 8) #Set to 8 cores
+
+options(mc.cores = 14) #Set to 14 cores
 start_time = Sys.time()
 ## Load and compile stan code (this can take a few minutes)
+
 ## If you get an error about path mapping to a previous user 
-##make sure to go into the model/scripts folder and delete the old unix model before making this one
+##make sure to go into the model/scripts folder and delete the old unix model before making this one or run: cmdstanr::rebuild_cmdstan()
 model_compiled <- cmdstan_model(stan_file = '2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_20231220.stan')
 ## Run model on the groups
+
 
 
 res_fitness_3 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_3,
@@ -2017,20 +2020,20 @@ reproducible results.
 To save some time, you may wish to load the results:
 
 ```{r, eval = T}
-# res_fitness_1 = readRDS("3_Outputs/res_fitness_DENV1_timescale7_wind1_2025-01-06_2234.rds")
-# res_fitness_2 = readRDS("3_Outputs/res_fitness_DENV2_timescale7_wind1_2025-01-06_2234.rds")
-# res_fitness_3 = readRDS("3_Outputs/res_fitness_DENV3_timescale7_wind1_2025-01-06_2234.rds")
-# res_fitness_4 = readRDS("3_Outputs/res_fitness_DENV4_timescale7_wind1_2025-01-06_2234.rds")
+# res_fitness_1 = readRDS("4_Output_data/res_fitness_DENV1_timescale7_wind1_2025-01-06_2234.rds")
+# res_fitness_2 = readRDS("4_Output_data/res_fitness_DENV2_timescale7_wind1_2025-01-06_2234.rds")
+# res_fitness_3 = readRDS("4_Output_data/res_fitness_DENV3_timescale7_wind1_2025-01-06_2234.rds")
+# res_fitness_4 = readRDS("4_Output_data/res_fitness_DENV4_timescale7_wind1_2025-01-06_2234.rds")
 
 
 
 
 # #Write
-# file_name_fitness_3 <- glue("3_Outputs/res_fitness_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
-# file_name_fitness_2 <- glue("3_Outputs/res_fitness_DENV2_timescale{timescale}_wind{wind}_{st}.rds")
-# file_name_fitness_1 <- glue("3_Outputs/res_fitness_DENV1_timescale{timescale}_wind{wind}_{st}.rds")
-# file_name_fitness_4 <- glue("3_Outputs/res_fitness_DENV4_timescale{timescale}_wind{wind}_{st}.rds")
-
+# file_name_fitness_3 <- glue("4_Output_data/res_fitness_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_fitness_2 <- glue("4_Output_data/res_fitness_DENV2_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_fitness_1 <- glue("4_Output_data/res_fitness_DENV1_timescale{timescale}_wind{wind}_{st}.rds")
+# file_name_fitness_4 <- glue("4_Output_data/res_fitness_DENV4_timescale{timescale}_wind{wind}_{st}.rds")
+# 
 # write_rds(res_fitness_3, file_name_fitness_3)
 # write_rds(res_fitness_2, file_name_fitness_2)
 # write_rds(res_fitness_1, file_name_fitness_1)
@@ -2078,7 +2081,7 @@ for (i in 1:4) {
   colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
   assign(paste0('colour_lineage_', i), colour_lineage)
   
-  png(filename = paste0("3_Outputs/fitness_plot_DENV_", i, ".png"), width = 1600, height = 1400, res = 300)
+  png(filename = paste0("3_Output_Figures/fitness_plot_DENV_", i, "_" , st, ".png"), width = 1600, height = 1400, res = 300)
   
   # Plot fitness data
   plot_fit_data_new(
@@ -2106,30 +2109,19 @@ for (i in 1:4) {
 
 Plot the predicted vs observed proportions:
 
-```{r}
+```{r observed vs predicted single, eval=FALSE}
 plot_observed_vs_predicted(data = res_fitness$data,
                            Chains = res_fitness$chains,
                            colour_lineage = colour_lineage)
 
 ```
 
-```{r}
+```{r observed vs predicted dynamic loop}
 for (i in 1:4) {
-
   res_fitness <- get(paste0('res_fitness_', i))
   colour_lineage <- get(paste0('colour_lineage_', i))
-  
+  png(filename = paste0("3_Output_Figures/observed_vs_predicted_DENV_", i, "_" ,st, ".png"), width = 1600, height = 1400, res = 300)
 
-  plot_observed_vs_predicted(
-    data = res_fitness$data,
-    Chains = res_fitness$chains,
-    colour_lineage = colour_lineage
-  )
-  
- 
-  png(filename = paste0("3_Outputs/observed_vs_predicted_DENV_", i, ".png"), width = 1400, height = 16600, res = 300)
-  
-  # Re-plot to save it within the PNG file
   plot_observed_vs_predicted(
     data = res_fitness$data,
     Chains = res_fitness$chains,
@@ -2143,23 +2135,14 @@ for (i in 1:4) {
 
 Plot raw fitness estimates:
 
-```{r}
+```{r relative fitness dynamic loop}
 for (i in 1:4) {
   res_fitness <- get(paste0('res_fitness_', i))
   colour_lineage <- get(paste0('colour_lineage_', i))
+  # Save the plot as a PNG
+  png(filename = paste0("3_Output_Figures/estimated_fitness_ref_ancestral_DENV_", i, "_" , st, ".png"), width = 1600, height = 1200, res = 300)
   
   # Plot estimated fitness relative to ancestral reference
-  plot_estimated_fitness_ref_ancestral(
-    data = res_fitness$data,
-    Chains = res_fitness$chains,
-    colour_lineage = colour_lineage,
-    gentime = 1
-  )
-  
-  # Save the plot as a PNG
-  png(filename = paste0("3_Outputs/estimated_fitness_ref_ancestral_DENV_", i, ".png"), width = 1200, height = 800, res = 300)
-  
-  # Re-plot to save it within the PNG file
   plot_estimated_fitness_ref_ancestral(
     data = res_fitness$data,
     Chains = res_fitness$chains,
@@ -2172,6 +2155,77 @@ for (i in 1:4) {
 }
 
 ```
+
+Alternatively you may wish to plot the model, observed vs predicted and relative fitness graphs together 
+```{r three panel fitness plots }
+
+for (i in 1:4) {
+
+## ------ Model Plot ------ ##
+
+# Retrieve relevant variables
+  split <- get(paste0('split_', i))
+  res_fitness <- get(paste0('res_fitness_', i))
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i))
+  
+  # Order colors dynamically
+  order_colors <- order(as.numeric(split$tip_and_nodes_groups))
+  assign(paste0('order_colors_', i), order_colors)
+  
+  # Assign lineage colors dynamically
+  colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
+  assign(paste0('colour_lineage_', i), colour_lineage)
+  
+  svglite(filename = paste0("3_Output_Figures/threepanel_fitness_plot_DENV_", i, "_", st, ".svg"), width = 3.33)
+  
+  par(mfrow = c(3, 1), oma = (c(1,1,2,1)+0.1), mar=(c(4,4,1,1)+ 0.1)) #c(bottom, left, top, right)
+  
+  # Plot fitness data
+  
+  plot_fit_data_new(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    xmin = min_year, 
+    xmax = max_year
+  )
+  
+  # Add legend
+  legend(
+    'topright', 
+    legend = name_groups,
+    fill = colour_lineage, 
+    border = colour_lineage,
+    cex = 0.5, bty = 'n', ncol = 5
+  )
+  
+## ------ Obs vs predicted Plot ------ ##
+  plot_observed_vs_predicted(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage
+  )
+
+## ------ Relative Fitness Plot ------ ##
+  # Plot estimated fitness relative to ancestral reference
+  plot_estimated_fitness_ref_ancestral(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    gentime = 1
+  )
+  
+  mtext(paste0("DENV", i), line=0, side=3, outer=TRUE, cex=1)
+  
+  dev.off()
+ 
+} 
+  
+  
+```
+
+
 
 # Lineage-defining mutations
 
