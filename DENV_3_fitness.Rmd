@@ -1485,6 +1485,83 @@ library(svglite)
 
 ```
 
+
+## The tree isn't sclaed correclty becuase Noemie uses AxisPhylo_NL to rescale her X axis 
+
+```{r newindexandtreeviaggplot, eval=FALSE}
+tree <- get(paste0('tree_DENV', i))
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  root_height <- get(paste0('root_height_', i))
+  min_year <- get('min_year')  
+  max_year <- get('max_year')
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i)) 
+  genome_length <- get('genome_length')  
+  mutation_rate_sci <- get('mutation_rate_sci')
+  timescale <- get('timescale')
+  wind <- get('wind')
+  
+
+  
+  ## ---- TREE PLOT ----
+  
+ 
+  
+  tree_plot <- ggtree(tree, layout = "rectangular", aes(color = "lightgrey")) +
+    geom_tippoint(aes(color = dataset_with_nodes$group_color), size = 1) +
+    xlim(c(min_year, max_year) - root_height) +
+    # scale_x_continuous(
+    #   # name = "Time (Years)",
+    #   # limits = c(min_year, max_year),
+    #   # breaks = seq(min_year, max_year, by = 5) - root_height,  # Adjust for root height
+    #   # labels = seq(min_year, max_year, by = 5)  # Ensure year labels match axis
+    # ) +
+    scale_color_identity() +
+    theme_tree2() +
+    ggtitle(paste0("DENV-", i, " Phylogenetic Tree")) 
+    
+  
+  
+  tree_plot
+
+  
+  ## ---- INDEX PLOT ----
+  grob <- grobTree(textGrob(paste0(
+            "DENV_", i, "\n",
+            "Genome Length: ", genome_length, " bp\n",
+            "Mutation Rate: ", mutation_rate_sci, "\n",
+            "Timescale: ", timescale, " years \n",
+            "Window: ", round(wind, 2), " years"), x=0.01,  y=0.90, hjust=0, gp=gpar(col="grey", fontsize=08, fontface="italic")))
+  
+  index_plot <- ggplot(dataset_with_nodes, aes(x = time, y = index, color = group_color)) +
+    geom_point(alpha = 1, size = 1) +
+    xlim( c(min_year, max_year)) +
+    scale_color_identity() +
+    labs(
+      x = "Time (years)", 
+      y = "Index",
+      title = "Index"
+      # paste0(
+      #   "DENV_", i, "\n",
+      #   "Genome Length: ", genome_length, " bp\n",
+      #   "Mutation Rate: ", mutation_rate_sci, "\n",
+      #   "Timescale: ", timescale, " years \n",
+      #   "Window: ", round(wind, 2), " years")
+    ) + 
+     annotation_custom(grob) + theme_minimal()
+  
+ index_plot
+   tree_plot/index_plot
+  
+   
+   
+  
+ 
+
+```
+
+
+
 #### Compare NextStrain groups and groups called with the index
 
 Generate trees colored with each set of groups next to each other:
