@@ -24,6 +24,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Not printed, set directory
 here::i_am("DENV_3_fitness.Rmd")
 
+
 ```
 
 First, source all the necessary functions:
