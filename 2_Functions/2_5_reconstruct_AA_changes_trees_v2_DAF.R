@@ -465,7 +465,8 @@ plot.phylo(tree_DENV1, show.tip.label = F, node.color = matrix_data_bin_1[,4133]
 # }
 ########
 
-process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes) {
+
+process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, orf_index = NULL) {
   #' Process a matrix of sequence data into codons and amino acids
   #'
   #' @description This function processes a matrix of nucleotide sequence data into codon and amino acid matrices.
@@ -475,7 +476,8 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes) {
   #' The ORF file should contain columns `start` and `end` that define the ORF locations.
   #' @param matrix_data Matrix. A matrix of nucleotide sequences, where rows represent different sequences and columns represent nucleotide positions.
   #' @param anc_bayes Named vector. A reference sequence or ancestral state vector used to assign row names to output matrices.
-  #'
+  #' @param orf_index Integer or NULL. If provided, only the specified ORF index will be processed. If NULL (default), all ORFs are processed.
+  #' 
   #' @return A list containing:
   #' \itemize{
   #'   \item{`AA_matrices`}{A list of matrices, where each matrix contains translated amino acid sequences for an ORF.}
@@ -493,6 +495,13 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes) {
   # Read ORF position data if file path is provided
   if (is.character(data_orfs)) {
     data_orfs <- read.csv(data_orfs)
+  }
+  
+  # Determine the ORF indices to process
+  if (is.null(orf_index)) {
+    orf_indices <- seq_len(nrow(data_orfs))  # Process all ORFs
+  } else {
+    orf_indices <- orf_index  # Process only the specified ORF
   }
   
   # Pre-allocate lists
@@ -542,6 +551,8 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes) {
   return(list(AA_matrices = AA_matrices, codon_matrices = codon_matrices))
 }
 
+
+data_orfs = read.csv("1_Data/1_5_DENV/Position_genes_Dengue.csv")
 
 
 Codon_AA_output_DENV1 <- process_ORFs_into_AA_and_Codons(

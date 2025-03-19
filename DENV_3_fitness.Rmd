@@ -2332,13 +2332,15 @@ similarly.
 
 The SNP-sites generated vcf files are suffixed underscore_bioconda.vcf
 
+Before doing this make sure you have reconstruction files that have the AA and codon reconstructions in them
+
 ```{r reconstruction_build}
 
 ########################################################################################################################################
 ## Reconstruction
 ########################################################################################################################################
-ORFs = c('whole_genome', "2Kfrag", "NS4B", "NS4A", "NS3",  "NS2B", "NS4A", "NS1", "prM", "E", "C", "NS5") 
-#Can use mutiple orfs here if you have orf fasta files. We have the whole genome so we'll use that for now
+ORFs = c( "2Kfrag", "NS4B", "NS4A", "NS3",  "NS2B", "NS4A", "NS1", "prM", "E", "C", "NS5") 
+#Can use mutiple orfs here if you have orf fasta files
 
 vcf_files <- c("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d1_n1026_copy_underscore_bioconda.vcf",
                         "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d2_n796_underscore_bioconda.vcf",
