@@ -16,14 +16,14 @@ library(seqinr)
 ########################################################################################################################################
 ## Load data
 ########################################################################################################################################
-setwd('~/Documents/THD/THD_SARS-CoV-2/')
-load('2_analysis_index/1_index_computations/Initial_index_computation_and_parameters_11102023.Rdata')
-load('2_analysis_index/2_find_index_groups/Lineages_detected_11102023.Rdata')
+
+load("1_Data/1_1_SARS_CoV_2/Initial_index_computation_and_parameters_11102023.Rdata")
+load("1_Data/1_1_SARS_CoV_2/Lineages_detected_28062023.Rdata")
 ## Input fasta data (PHYDAT format)
-tree_sars_world_seqs <- read.phyDat("1_Data_Nextstrain_20230414/World/nextstrain_ncov_gisaid_global_all-time_timetree_dedup_wuhan.fasta",
+tree_sars_world_seqs <- read.phyDat("1_Data/1_1_SARS_CoV_2/nextstrain_ncov_gisaid_global_all-time_timetree_dedup_wuhan.fasta",
                                     format = "fasta")
 ## Input fasta data (SEQINR format)
-fasta_data = read.fasta('1_Data_Nextstrain_20230414/World/nextstrain_ncov_gisaid_global_all-time_timetree_dedup_wuhan.fasta', forceDNAtolower = T, whole.header = T)
+fasta_data = read.fasta("1_Data/1_1_SARS_CoV_2/nextstrain_ncov_gisaid_global_all-time_timetree_dedup_wuhan.fasta", forceDNAtolower = T, whole.header = T)
 data_seq = getSequence(fasta_data)
 data_name_seq = names(fasta_data)
 ########################################################################################################################################
@@ -31,8 +31,8 @@ data_name_seq = names(fasta_data)
 ########################################################################################################################################
 ## Prepare data: make the IDs match
 ########################################################################################################################################]
-correspondence_ID_EPI_world = read.csv('1_Data_Nextstrain_20230414/World/nextstrain_ncov_gisaid_global_all-time_timetree_virus_ID.csv', 
-                                       header = F, col.names = c("N", "Virus name", "Accession ID"))
+correspondence_ID_EPI_world = read.csv("1_Data/1_1_SARS_CoV_2/List_all_isolates_SARSCoV2_global_20230414.csv", 
+                                       header = T, col.names = c("N", "Virus name", "Accession ID", "Collection Time", "Country", "Nextstrain_clade", "Source"))
 tree = tree_sars_world
 names_seqs_world_simple = unlist(lapply(tree$tip.label, function(x){
   tmp = str_split(x, pattern = '\\.')[[1]]
@@ -55,6 +55,8 @@ names(tree_sars_world_seqs) = tree$tip.label[match(correspondence_ID_EPI_world$V
 ########################################################################################################################################
 fit <- pml(tree = tree, data = tree_sars_world_seqs)
 fit <- optim.pml(fit, model="GTR", control = pml.control(trace=0))
+
+# makeNodeLabel(tree)
 
 anc.bayes <- ancestral.pml(fit, "bayes")
 ########################################################################################################################################
@@ -85,38 +87,76 @@ remove(data_seq)
 ########################################################################################################################################
 ## Check for 1 position that everything is fine
 ########################################################################################################################################
+
 plot.phylo(tree_sars_world, show.tip.label = F, node.color = matrix_data_bin[,25000])
 ########################################################################################################################################
 
 ########################################################################################################################################
 ## Split this matrix into ORFs, split by codons and translate to AA
 ########################################################################################################################################
-data_orfs = read.csv('1_refseq/Position_ORFs_nextstrain.csv')
+# data_orfs = read.csv("1_Data/1_1_SARS_CoV_2/Position_ORFs_nextstrain.csv")
+# 
+# list_matrices_ORFs_AA = list_matrices_ORFs_codon = list()
+# for(i in 1:nrow(data_orfs)){
+#   if(i==6) {next }
+#   i =7 
+#   ## AA sequences
+#   list_matrices_ORFs_AA[[i]] = t(apply(matrix_data[,data_orfs$start[i]:data_orfs$end[i]], MARGIN = 1, function(x)translate(x)))
+#   ## Matrix of codons
+#   list_matrices_ORFs_codon[[i]] = matrix(NA, nrow = nrow(matrix_data),
+#                                          ncol = ncol(matrix_data[,data_orfs$start[i]:data_orfs$end[i]])/3)
+#   for(j in 1:(ncol(list_matrices_ORFs_codon[[i]]))){
+#     list_matrices_ORFs_codon[[i]][,j] = apply(matrix_data[,data_orfs$start[i]:data_orfs$end[i]][,(1:3)+(j-1)*(3)], 
+#                                               MARGIN = 1, function(x)paste0(x, collapse = ''))
+#   }
+#   rownames(list_matrices_ORFs_AA[[i]]) = names(anc.bayes)
+#   rownames(list_matrices_ORFs_codon[[i]]) = names(anc.bayes)
+# }
 
-list_matrices_ORFs_AA = list_matrices_ORFs_codon = list()
-for(i in 1:nrow(data_orfs)){
-  print(i)
-  ## AA sequences
-  list_matrices_ORFs_AA[[i]] = t(apply(matrix_data[,data_orfs$start[i]:data_orfs$end[i]], MARGIN = 1, function(x)translate(x)))
-  ## Matrix of codons
-  list_matrices_ORFs_codon[[i]] = matrix(NA, nrow = nrow(matrix_data),
-                                         ncol = ncol(matrix_data[,data_orfs$start[i]:data_orfs$end[i]])/3)
-  for(j in 1:(ncol(list_matrices_ORFs_codon[[i]]))){
-    list_matrices_ORFs_codon[[i]][,j] = apply(matrix_data[,data_orfs$start[i]:data_orfs$end[i]][,(1:3)+(j-1)*(3)], 
-                                              MARGIN = 1, function(x)paste0(x, collapse = ''))
+### Optimized code
+data_orfs = read.csv("1_Data/1_1_SARS_CoV_2/Position_ORFs_nextstrain.csv")
+
+# Pre-allocate lists
+list_matrices_ORFs_AA = vector("list", length = nrow(data_orfs))
+list_matrices_ORFs_codon = vector("list", length = nrow(data_orfs))
+
+# Iterate over ORFs
+for (i in seq_len(nrow(data_orfs))) {
+  print(paste("Processing ORF", i, "of", nrow(data_orfs)))  # Track progress
+  start_idx <- data_orfs$start[i]
+  end_idx <- data_orfs$end[i]
+  
+  # Extract ORF data once to avoid repeated indexing
+  orf_data <- matrix_data[, start_idx:end_idx]
+  
+  # AA sequences (optimized apply usage)
+  list_matrices_ORFs_AA[[i]] <- t(apply(orf_data, 1, translate))
+  
+  # Precompute codon matrix size
+  num_codons <- (end_idx - start_idx + 1) / 3
+  list_matrices_ORFs_codon[[i]] <- matrix(NA, nrow = nrow(matrix_data), ncol = num_codons)
+  
+  # Efficient codon extraction using matrix slicing
+  for (j in seq_len(num_codons)) {
+    col_indices <- (1:3) + (j - 1) * 3
+    list_matrices_ORFs_codon[[i]][, j] <- apply(orf_data[, col_indices], 1, paste0, collapse = "")
   }
-  rownames(list_matrices_ORFs_AA[[i]]) = names(anc.bayes)
-  rownames(list_matrices_ORFs_codon[[i]]) = names(anc.bayes)
+  
+  # Assign row names once (avoid redundant operations)
+  rownames(list_matrices_ORFs_AA[[i]]) <- names(anc.bayes)
+  rownames(list_matrices_ORFs_codon[[i]]) <- names(anc.bayes)
 }
+
+
 ########################################################################################################################################
 
 ########################################################################################################################################
 ## Build dataframes per orf
 ########################################################################################################################################
-codons_possibale_with_n = gtools::permutations(n = 5, r = 3, v = c('a', 'c', 't', 'g', 'n'), repeats.allowed = T)
-codons_possibale_with_n = apply(codons_possibale_with_n, MAR = 1, function(x)paste0(x, collapse = ''))
+codons_possible_with_n = gtools::permutations(n = 5, r = 3, v = c('a', 'c', 't', 'g', 'n'), repeats.allowed = T)
+codons_possible_with_n = apply(codons_possible_with_n, MAR = 1, function(x)paste0(x, collapse = ''))
 bin_condons <- function(x){
-  x=as.numeric(factor(as.character(x),levels=codons_possibale_with_n))
+  x=as.numeric(factor(as.character(x),levels=codons_possible_with_n))
   return(x)
 }
 
@@ -156,7 +196,7 @@ for(orf in 1:length(list_matrices_ORFs_AA)){
                                                             list_matrices_ORFs_AA = list_matrices_ORFs_AA,
                                                             list_matrices_ORFs_codon = list_matrices_ORFs_codon,
                                                             orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0('2_analysis_index/3_snp_association/vcfs_and_AA_reconstructions/World/nextstrain_ncov_gisaid_global_all-time_timetree_reconstruction_', data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_1_Sars_CoV/nextstrain_ncov_gisaid_global_all-time_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
 }
 ########################################################################################################################################
 
