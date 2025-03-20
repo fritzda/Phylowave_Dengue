@@ -2,3 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+.DS_Store
+1_Data/.DS_Store
+Phylowave_Learning-fitness-dynamics-pathogens-in-phylogenies.Rproj
+paper-index-fitness-dynamics-trees.Rproj
