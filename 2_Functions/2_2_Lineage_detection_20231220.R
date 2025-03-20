@@ -753,7 +753,7 @@ compute_fit_for_node_set = function(timed_tree,
   if(!is.numeric(weight_by_time) & !is.null(weight_by_time)) stop('Weight_by_time is not NULL or numeric')
   if(!is.null(weight_by_time)){
     weights = rep(NA, length(metadata$time))
-    window_weights = seq(min(metadata$time)-1e4, max(metadata$time)+1e4, weight_by_time)
+    window_weights = seq(min(metadata$time)-1e4, max(metadata$time)+1e4, weight_by_time, include.lowest = T, right = F))
     freq = hist(metadata$time, breaks = window_weights, plot = F)
     freq$counts[which(freq$counts == 0)] = NA
     if(length(weighting_transformation) != 1) stop('Weighting_transformation parameter is not of length 1, please supply one weighting transformation')
