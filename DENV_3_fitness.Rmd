@@ -296,6 +296,10 @@ library(vcfR)
 library(reticulate)
 library(tidyverse)
 library(foreach)
+
+# font_import()
+loadfonts(device="all") 
+
 ```
 
 ```{r debug area, eval = FALSE}
@@ -2460,7 +2464,7 @@ data do not match."**
 
 
 
-### Load in reconstructions
+### New Code Load in reconstructions from  2_5_reconstruct_AA_changes
 
 ```{r eval=TRUE}
 #Loading In reconstrcutions 
@@ -2742,250 +2746,228 @@ save.image('Raw_scores_detection_DENV1to3_thai_01_25_2025.Rdata')
 
 ## Find significant snps
 
-```{r}
+
+```{r Find significant snps}
+
 ########################################################################################################################################
 ## Find significant snps
 ########################################################################################################################################
-# Extract and process edge lineage tree for DENV1
-edge_lineage_tree_1 = split_1$lineage_tree$edge
-edge_lineage_tree_1[, 1] = split_1$tip_and_nodes_groups[match(edge_lineage_tree_1[, 1], names(split_1$tip_and_nodes_groups))]
-edge_lineage_tree_1[, 2] = split_1$tip_and_nodes_groups[match(edge_lineage_tree_1[, 2], names(split_1$tip_and_nodes_groups))]
-edge_lineage_tree_1_snps = as.list(edge_lineage_tree_1)
+sig_threshold <- 0.8
+scores_sig_all <- list()
 
-# Initialize results list for significant SNPs
-scores_DENV1_thai_sig_all_codons = scores_DENV1_thai
-sig_threshold = 0.8
-
-## DAF changed because split_X$tip_and_nodes_groups always has an NA value
-# Loop through each lineage node
-
-for (i in seq_along(scores_DENV1_thai)) {
-  # Find parent and child nodes
-  tmp = as.numeric(edge_lineage_tree_1[which(edge_lineage_tree_1[, 2] == i), ])
+for (score_name in names(scores_all)) {
+  # Example: "Dengue_1_NS5_codon"
+  parts <- strsplit(score_name, "_")[[1]]
+  # Dengue type number (e.g., 1, 2, 3)
+  dengue_type <- parts[2]
   
-  # Check if `tmp` contains valid indices
-  if (is.null(tmp) || length(tmp) == 0 || is.na(tmp[1])) {
-    # Handle cases where `tmp` is invalid or missing
-    ans = NULL
-    des = NULL
-  } else {
-    # Extract significant SNPs from the parent node
-    if (!is.na(tmp[1]) && tmp[1] <= length(scores_DENV1_thai)) {
-      ans = names(which(scores_DENV1_thai[[tmp[1]]] > sig_threshold))
+  # Get the appropriate split object for this DENV type
+  split_obj <- get(paste0("split_", dengue_type))
+  
+  # Set up edge lineage tree with node group mapping
+  edge_lineage_tree <- split_obj$lineage_tree$edge
+  edge_lineage_tree[, 1] <- split_obj$tip_and_nodes_groups[match(edge_lineage_tree[, 1], names(split_obj$tip_and_nodes_groups))]
+  edge_lineage_tree[, 2] <- split_obj$tip_and_nodes_groups[match(edge_lineage_tree[, 2], names(split_obj$tip_and_nodes_groups))]
+  
+  # Get the score vector (one element per node)
+  scores_vector <- scores_all[[score_name]]
+  
+  # Initialize result vector for this gene/level
+  snps_sig <- vector("list", length(scores_vector))
+
+  for (i in seq_along(scores_vector)) {
+    tmp <- as.numeric(edge_lineage_tree[which(edge_lineage_tree[, 2] == i), ])
+
+    if (is.null(tmp) || length(tmp) == 0 || is.na(tmp[1])) {
+      ans <- NULL
+      des <- NULL
     } else {
-      ans = NULL
+      ans <- if (!is.na(tmp[1]) && tmp[1] <= length(scores_vector)) {
+        names(which(scores_vector[[tmp[1]]] > sig_threshold))
+      } else NULL
+
+      des <- if (!is.na(tmp[2]) && tmp[2] <= length(scores_vector)) {
+        names(which(scores_vector[[tmp[2]]] > sig_threshold))
+      } else NULL
     }
 
-    # Extract significant SNPs from the current node
-    if (!is.na(tmp[2]) && tmp[2] <= length(scores_DENV1_thai)) {
-      des = names(which(scores_DENV1_thai[[tmp[2]]] > sig_threshold))
-    } else {
-      des = NULL
-    }
+    snps_sig[[i]] <- if (!is.null(des)) des[!des %in% ans] else NULL
   }
 
-  # Remove SNPs already present in the parent node
-  if (!is.null(des)) {
-    res = des[!des %in% ans]
-  } else {
-    res = NULL
-  }
-
-  # Store significant SNPs for the current node
-  scores_DENV1_thai_sig_all_codons[[i]] = res
+  # Store the result using the same name
+  scores_sig_all[[score_name]] <- snps_sig
 }
 
-scores_DENV1_thai_sig_all_codons
+scores_sig_all[["Dengue_1_whole_genome_codon"]]
+scores_sig_all[["Dengue_2_whole_genome_codon"]]
+scores_sig_all[["Dengue_3_whole_genome_codon"]]
+```
 
+
+## Plot the SNPs density of the full genome
+
+
+```{r}
 ########################################################################################################################################
 ## Full genome, substitutions (NS, ie AA change) with signal
 ########################################################################################################################################
+genes <- read.csv("1_Data/1_5_DENV/Position_genes_Dengue.csv")
 
-library(readxl)
-library(stringr)
+# Pull only full genome AA entries
+full_genome_score_names <- grep("whole_genome_AA$", names(scores_all), value = TRUE)
 
+# Initialize an empty list to hold score vectors for each Dengue type
+scores_dengue_full_genome_AA <- list()
 
-# Read the 3rd sheet
-genes <- read_excel("1_Data/1_5_DENV/DenMutationsEpiPosStica2022.xlsx", sheet = 3)
+for (name in full_genome_score_names) {
+  # Extract Dengue type (e.g., "Dengue_1")
+  dengue_type <- paste(strsplit(name, "_")[[1]][1:2], collapse = "_")
 
-serotype_to_plot <- genes 
-serotype_to_plot <- genes[which(genes$Serotype == "DENV1"),]
+  # Pull scores and take max per site across nodes
+  score_matrix <- do.call(rbind, scores_all[[name]])
+  max_scores <- apply(score_matrix, MAR = 2, max)
 
-genes_to_plot <- serotype_to_plot
-genes_to_plot = genes_to_plot[-which(genes_to_plot$Protein == '2Kfrag' | genes_to_plot$Protein == 'C_Er_Anchor'),]
-colors = MetBrewer::met.brewer(name="Derain", n=11)
+  # Get site positions from names (assuming name format like "X|123")
+  site_positions <- as.numeric(sapply(strsplit(names(max_scores), "\\|"), `[`, 2))
+  genome_positions <- site_positions * 3 - 1.5  # Codon to nucleotide midpoint
 
-
-
-
-scores_dengue_full = NULL
-
-# Loop over each protein in the genes data frame
-for (i in 1:nrow(genes_to_plot)) {
-  # Get start and end positions for the current protein
-  start_pos = genes_to_plot$Genome_Start[i]
-  end_pos = genes_to_plot$Genome_End[i]
-  
-  # Extract significant scores for the current protein based on nucleotide positions
-  protein_scores = lapply(scores_DENV1_thai_sig_all_codons, function(x) {
-    # Filter scores within the protein range
-    x[sapply(str_split(x, "\\|"), function(y) {
-      pos = as.numeric(y[2])
-      pos >= start_pos & pos <= end_pos
-    })]
-  })
-  
-  # Combine scores across nodes and extract the maximum score for each nucleotide
-  if (length(protein_scores) > 0) {
-    tmp = unlist(protein_scores)
-    tmp_values = sapply(str_split(tmp, "\\|"), function(y) as.numeric(y[1]))  # Extract score values
-    tmp_positions = sapply(str_split(tmp, "\\|"), function(y) as.numeric(y[2]))  # Extract positions
-    names(tmp_values) = tmp_positions  # Assign nucleotide positions as names
-    scores_dengue_full = c(scores_dengue_full, tmp_values)
-  }
+  names(max_scores) <- genome_positions
+  scores_dengue_full_genome_AA[[dengue_type]] <- max_scores
 }
 
-scores_dengue_full = scores_dengue_full[order(as.numeric(names(scores_dengue_full)))]
 
-valid_scores = scores_dengue_full[as.numeric(scores_dengue_full) <= 0]
+plot_dengue_genome_AA_density <- function(scores, genes_table, gene_colors = NULL) {
+  if (is.null(gene_colors)) {
+    gene_colors <- grDevices::rainbow(nrow(genes_table), alpha = 0.25)
+  }
 
+  par(
+  oma = c(0, 0, 0, 0),        # outer margin
+  mar = c(3, 4, 1, 1),        # margin (bottom, left, top, right)
+  mgp = c(2, 0.5, 0),         # axis title, labels, line spacing
+  family = 'Arial',           
+  cex.axis = 0.7,             # axis number size
+  cex.lab = 0.8,              # axis label size
+  cex.main = 0.9,
+  cex.sub = 0.8
+)
 
-# Plot genome-wide density of significant scores
-plot_scores_genome_density = function() {
-  par(oma = c(0, 0, 0, 0), mar = c(2, 2, 0, 0), mgp = c(0, 0.1, 0), family = 'Arial',
-      cex.axis = 0.3, cex.lab = 0.3, cex.main = 0.4, cex.sub = 0.3)
-  
-  # Generate density of scores
-  dens = density(as.numeric(names(scores_dengue_full)), 
-                 weights = scores_dengue_full / sum(scores_dengue_full), 
-                 bw = 50, n = 3000)
-  
-  # Initialize blank plot
-  plot(NULL, xlim = c(0, max(genes_to_plot$Genome_End)), ylim = c(0, max(dens$y)), 
-       bty = 'n', yaxt = 'n', ylab = '', xlab = 'Genome Position')
+  dens <- density(as.numeric(names(scores)), weights = scores / sum(scores), bw = 50, n = 3000)
+
+  plot(NULL, 
+       xlim = c(0, max(genes_table$end) + 1000), 
+       ylim = c(0, 1.5*max(dens$y)), 
+       bty = 'n', 
+       yaxt = 'n', 
+       ylab = "Weighted SNP Density",
+       xlab = "Genome Postion (nt)")
   axis(2, las = 2)
-  
-  # Highlight protein regions
-  colors = MetBrewer::met.brewer(name = "Derain", n = nrow(genes_to_plot))
-  for (i in 1:nrow(genes_to_plot)) {
-    polygon(x = c(genes_to_plot$Genome_Start[i], genes_to_plot$Genome_End[i],
-                  genes_to_plot$Genome_End[i], genes_to_plot$Genome_Start[i]), 
-            y = c(0, 0, max(dens$y), max(dens$y)), 
-            border = F, col = adjustcolor(colors[i], alpha.f = 0.25))
+
+   for (i in seq_len(nrow(genes_table))) {
+    start <- genes_table$start[i]
+    end <- genes_table$end[i]
+    midpoint <- (start + end) / 2
+
+    # Draw gene block
+    polygon(x = c(start, start, end, end), y = c(0, 1, 1, 0), 
+            border = NA, col = gene_colors[i])
+
+    # Add gene name label at the center top of the block
+    text(x = midpoint, y = max(dens$y) * 1.25, labels = genes_table$gene[i], 
+         cex = 0.4, srt = 90, adj = 0)
   }
-  
-  # Overlay density plot
-  polygon(x = c(dens$x, rev(dens$x)), 
-          y = c(dens$y, rep(0, length(dens$y))), 
-          border = F, col = 'grey30')
+
+  # Draw the density plot over top
+  polygon(x = c(dens$x, rev(dens$x)), y = c(dens$y, rep(0, length(dens$y))), 
+          border = FALSE, col = 'grey30')
 }
 
-# Plot the scores
-plot_scores_genome_density()
+# Pick colors using MetBrewer (optional)
 
-# Save the plot
-ggsave(filename = 'Plot_scores_dengue_genome_density.pdf', 
-       plot = ggdraw(plot_scores_genome_density), 
-       device = 'pdf', scale = 1,
-       width = 10, height = 5, units = 'cm')
-```
+gene_colors <- MetBrewer::met.brewer(name = "Derain", n = nrow(genes))
 
-```{r}
-
-```
-
-STOPP HERE AND GO TO DF EDITS 2_4 lineage defining mutations
-
-```{r}
-
-
-########################################################################################################################################
-## Preparation data tips
-########################################################################################################################################
-
-
-data_vcf_d1_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d1_n1026 assembled to NC_001477.vcf")
-data_vcf_d2_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d2_n796 assembled to NC_001474.vcf")
-data_vcf_d3_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d3_n625_degap assembled to NC_001475.vcf")
-data_vcf_d4_full = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/d4_n477 assembled to NC_002640.vcf")
-
-
-data_vcf_d3_full_test = read.vcfR(file = "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators Data/denv_seqs_wgs/Aligned to Ref/test_d3_n625_degap Copy assembled to NC_001475.vcf")
-
-# Load the VCF file
-vcf <- data_vcf_d3_full
-
-# Extract the fixed fields and genotype (GT) data
-fixed <- as.data.frame(vcf@fix)
-gt <- as.data.frame(vcf@gt)
-
-# Combine fixed fields with genotype data
-vcf_data <- cbind(fixed, gt)
-
-# Rename columns for samples
-colnames(vcf_data) <- c("#CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", paste0("SAMPLE", 1:ncol(gt)))
-
-# Save the reformatted VCF
-write.table(vcf_data, "formatted_vcf.vcf", sep = "\t", quote = FALSE, row.names = FALSE)
-
-vcf_e = read.vcfR("~/Downloads/envelope protein E.vcf")
-
-data_vcf_list1 = list(data_vcf_d1_full)
-data_vcf_list2 = list(data_vcf_d2_full)
-data_vcf_list3 = list(data_vcf_d3_full)
-data_vcf_list4 = list(data_vcf_d4_full)
-
-
-
-
-## Create dataset with names of each sequence, time sampling, prn type etc
-add_snp_data = function(dataset_tips, names_seqs, data_vcf_list){
-  for(i in 1:length(data_vcf_list)){
-    tmp = data_vcf_list[[i]]
-    tmp = cbind(tmp, rep(NA, nrow(tmp)))
-    a = match(names_seqs, unlist(lapply(colnames(data_vcf_list[[i]]), function(x)strsplit(x, split = 'X')[[1]][2])))
-    a[which(is.na(a))] = ncol(tmp)
-    df_tmp = t(tmp[,a])
-    colnames(df_tmp) = paste0(data_vcf_list[[i]]$REF, data_vcf_list[[i]]$POS, data_vcf_list[[i]]$ALT, '_',names(data_vcf_list)[i])
-    dataset_tips = cbind(dataset_tips, df_tmp)
-  }
-  return(dataset_tips)
-}
+# Plot for Dengue_1
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_1"]],
+  genes_table = genes,
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
   
-## DENV1
-dataset_tips_d1 = data.frame('ID' = 1:length(names_seqs_1),
-                          'name_seq' = names_seqs_1,
-                          'time' = meta_data_d1$time[match(names_seqs_d1, meta_data_d1$shortname)])
-dataset_tips_d1 = add_snp_data(dataset_tips = dataset_tips_d1, 
-                               names_seqs = names_seqs_d1, 
-                               data_vcf_list)
+)
 
-## DENV2
-dataset_tips_d2 = data.frame('ID' = 1:length(names_seqs_d2),
-                          'name_seq' = names_seqs_d2,
-                          'time' = meta_data_d2$time[match(names_seqs_d2, meta_data_d2$shortname)])
-dataset_tips_d2 = add_snp_data(dataset_tips = dataset_tips_d2, names_seqs = names_seqs_d2, data_vcf_list)
+# Save
+pdf(file = here("3_Output_Figures", "Plot_Dengue1_AA_genome_density.pdf"), width = 10, height = 5)
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_1"]],
+  genes_table = genes,
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+)
+dev.off()
 
-## DENV3
-dataset_tips_d3 = data.frame('ID' = 1:length(names_seqs_d3),
-                          'name_seq' = names_seqs_d3,
-                          'time' = meta_data_d3$time[match(names_seqs_d3, meta_data_d3$shortname)])
-dataset_tips_d3 = add_snp_data(dataset_tips = dataset_tips_d3, names_seqs = names_seqs_d3, data_vcf_list)
+# Plot for Dengue_2
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_2"]],
+  genes_table = genes,
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+  
+)
 
-## DENV4
-dataset_tips_d4 = data.frame('ID' = 1:length(names_seqs_d4),
-                          'name_seq' = names_seqs_d4,
-                          'time' = meta_data_d4$time[match(names_seqs_d4, meta_data_d4$shortname)])
-dataset_tips_d4 = add_snp_data(dataset_tips = dataset_tips_d4, names_seqs = names_seqs_d4, data_vcf_list)
+# Save
+pdf(file = here("3_Output_Figures", "Plot_Dengue2_AA_genome_density.pdf"), width = 10, height = 5)
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_2"]],
+  genes_table = genes,
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+)
+dev.off()
+
+
+# Plot for Dengue_3
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_3"]],
+  genes_table = genes,
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+  
+)
+
+# Save
+pdf(file = here("3_Output_Figures", "Plot_Dengue3_AA_genome_density.pdf"), width = 10, height = 5)
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_3"]],
+  genes_table = genes,
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+)
+dev.off()
+
+
+# # Plot for Dengue_4
+# plot_dengue_genome_AA_density(
+#   scores = scores_dengue_full_genome_AA[["Dengue_4"]],
+#   genes_table = genes,
+#   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+#   
+# )
+# 
+# # Save
+# pdf(file = here("3_Output_Figures", "Plot_Dengue4_AA_genome_density.pdf"), width = 10, height = 5)
+# plot_dengue_genome_AA_density(
+#   scores = scores_dengue_full_genome_AA[["Dengue_4"]],
+#   genes_table = genes,
+#   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+# )
+# dev.off()
+# 
+
+
+
+
+
+
+
+
+
+
+
+
+
 ```
 
-```{r}
-reconstruction <- reconstruct_node_states(tree_DENV1_world, 
-                                          dataset_tips, 
-                                          dataset_with_nodes_1, 
-                                          min_prop = 0.01, 
-                                          max_prop = 0.99, 
-                                          names_seqs_1)
-
-
-```
