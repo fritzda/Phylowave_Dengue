@@ -2687,6 +2687,13 @@ for (recon_name in names(reconstructions)) {
     )
   }
 }
+
+
+# DENV4 doesn't work and gives error 
+# Error in if (nd == rootnd) break : missing value where TRUE/FALSE needed
+
+scores_all[["Dengue_1_whole_genome_AA"]]
+scores_all[["Dengue_3_2Kfrag_AA"]]
 ```
 
 
