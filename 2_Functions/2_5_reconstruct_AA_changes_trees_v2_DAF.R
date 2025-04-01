@@ -22,7 +22,7 @@ library(docstring)
 here::i_am("DENV_3_fitness.Rmd")
 
 load("6_Session_Data/Rebuild03_18_25.Rdata")
-# load('2_analysis_index/2_find_index_groups/Lineages_detected_11102023.Rdata')
+
 
 ### DENV 1 ####
 ## Input fasta data (PHYDAT format)
@@ -360,13 +360,13 @@ process_matrix_data_bin <- function(i_range = 1:4) {
 }
 
 
-matrix_data_results <- process_matrix_data_bin(2:4)
+matrix_data_results <- process_matrix_data_bin(1:4)
 names(matrix_data_results$matrix_data) <- c("DENV1", "DENV2", "DENV3", "DENV4")
 names(matrix_data_results$matrix_data_bin) <- c("DENV1", "DENV2", "DENV3", "DENV4")
 
 # Access results for dataset 1
-# matrix_data_bin_1 <- matrix_data_results$matrix_data_bin$DENV1
-# matrix_data_1 <- matrix_data_results$matrix_data$DENV1
+matrix_data_bin_1 <- matrix_data_results$matrix_data_bin$DENV1
+matrix_data_1 <- matrix_data_results$matrix_data$DENV1
 
 # Access results for dataset 2, 3, etc
 matrix_data_bin_2 <- matrix_data_results$matrix_data_bin$DENV2
@@ -419,7 +419,61 @@ matrix_data_4 <- matrix_data_results$matrix_data$DENV4
 ## Check for 1 position that everything is fine, this can take a minute to render
 # NS2A is highly variable so check there? 3480:4133, set a SNP position column to look at in matrix 
 ########################################################################################################################################
-plot.phylo(tree_DENV1, show.tip.label = F, node.color = matrix_data_bin_1[,4133])
+# Get the number of unique values per column (this takes some time)
+
+for( i in 1:4) {
+  matrix_data <- get(paste0("matrix_data_bin_", i))
+  
+  position_variability_df <- data.frame(
+    position = seq_len(ncol(matrix_data)),       # 1 to number of columns
+    unique_bases = apply(matrix_data, 2, function(col) length(unique(col)))
+  )
+  
+  high_variance_pos <- which(position_variability_df$unique_bases %in% c(4, 5))
+  
+  max_unique_col <- which.max(position_variability_df$unique_bases)
+  
+  # --- Histogram Plot ---
+  png_filename <- paste0("DENV", i, "_unique_base_histogram.png")
+  png(here("3_Output_Figures", png_filename), width = 5, height = 5, units = "in", res = 300)
+  
+  hist_obj <- hist(position_variability_df$unique_bases,
+                   main = paste("DENV", i, "Histogram of Unique Base Counts"),
+                   xlab = "Number of Unique Bases",
+                   ylab = "Frequency",
+                   col = "lightblue",
+                   border = "black")
+  
+  nonzero <- hist_obj$counts > 0
+  text(x = hist_obj$mids[nonzero],
+       y = hist_obj$counts[nonzero],
+       labels = hist_obj$counts[nonzero],
+       pos = 3, cex = 0.8, col = "black")
+  
+  dev.off()  # Save PNG
+  
+  
+  
+  p <- plot_ly(data = position_variability_df,
+          x = ~position,
+          y = ~unique_bases,
+          type = 'scatter',
+          mode = 'markers',
+          marker = list(color = 'darkgreen', size = 3),
+          text = ~paste("Position:", position, "<br>Unique Bases:", unique_bases),
+          hoverinfo = 'text') %>%
+    layout(title = paste0("DENV",i," Histogram of Unique Base Counts per Column"),
+           xaxis = list(title = "Genome Position (Column Index)"),
+           yaxis = list(title = "Number of Unique Bases"))
+  
+  htmlwidgets::saveWidget(as_widget(p), here("3_Output_Figures", paste0("DENV",i," Histogram of Unique Base Counts per Column", ".html")))
+}
+
+
+#This plot takes forever
+# plot.phylo(tree_DENV1, show.tip.label = F, node.color = matrix_data_bin_1[,231])
+
+
 ########################################################################################################################################
 
 ########################################################################################################################################
@@ -560,6 +614,8 @@ Codon_AA_output_DENV1 <- process_ORFs_into_AA_and_Codons(
   matrix_data = matrix_data_1,
   anc_bayes = anc.bayes_1
 )
+names(Codon_AA_output_DENV1$AA_matrices) <-data_orfs$gene
+names(Codon_AA_output_DENV1$codon_matrices) <-data_orfs$gene
 
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_1 <- Codon_AA_output_DENV1$AA_matrices
@@ -573,6 +629,9 @@ Codon_AA_output_DENV2 <- process_ORFs_into_AA_and_Codons(
   anc_bayes = anc.bayes_2
 )
 
+names(Codon_AA_output_DENV2$AA_matrices) <-data_orfs$gene
+names(Codon_AA_output_DENV2$codon_matrices) <-data_orfs$gene
+
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_2 <- Codon_AA_output_DENV2$AA_matrices
 list_matrices_ORFs_codon_2 <- Codon_AA_output_DENV2$codon_matrices
@@ -583,6 +642,9 @@ Codon_AA_output_DENV3 <- process_ORFs_into_AA_and_Codons(
   matrix_data = matrix_data_3,
   anc_bayes = anc.bayes_3
 )
+
+names(Codon_AA_output_DENV3$AA_matrices) <-data_orfs$gene
+names(Codon_AA_output_DENV3$codon_matrices) <-data_orfs$gene
 
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_3 <- Codon_AA_output_DENV3$AA_matrices
@@ -595,6 +657,9 @@ Codon_AA_output_DENV4 <- process_ORFs_into_AA_and_Codons(
   matrix_data = matrix_data_4,
   anc_bayes = anc.bayes_4
 )
+
+names(Codon_AA_output_DENV4$AA_matrices) <-data_orfs$gene
+names(Codon_AA_output_DENV4$codon_matrices) <-data_orfs$gene
 
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_4 <- Codon_AA_output_DENV4$AA_matrices
@@ -670,7 +735,7 @@ build_dataframes_node_AA_codons = function(dataset_with_nodes, list_matrices_ORF
   dataset_with_inferred_reconstruction_AA = dataset_with_nodes[,1:4]
   dataset_with_inferred_reconstruction_codon = dataset_with_nodes[,1:4]
   
-  # Data AA and codons fot that orf
+  # Data AA and codons for that orf
   matrix_ORFs_AA = list_matrices_ORFs_AA[[orf]]
   matrix_ORFs_codon = list_matrices_ORFs_codon[[orf]]
   
@@ -681,8 +746,29 @@ build_dataframes_node_AA_codons = function(dataset_with_nodes, list_matrices_ORF
   overall_snps = colSums(matrix_data_bin_snp)
   a = which(overall_snps > 0)
   
-  dataset_with_inferred_reconstruction_names = unlist(lapply(dataset_with_inferred_reconstruction_codon$name_seq, function(x)str_split(x, '\\/')[[1]][length(str_split(x, '\\/')[[1]])]))
-  idx = match(dataset_with_inferred_reconstruction_names, rownames(matrix_ORFs_codon))
+  ## This part is need to align the names of the matrix to the names in dataset_with_inferred_reconstruction_names
+  ## YOU MUST CHANGE THIS PART TO ALIGN WITH YOUR NAMING CONVENTION 
+  
+  # Logical vector: is this entry numeric-looking?
+  is_numeric <- grepl("^\\d+$", dataset_with_inferred_reconstruction_codon$name_seq)
+  # For numeric entries (assumed to be row indices)
+  node_indices <- as.numeric(dataset_with_inferred_reconstruction_codon$name_seq[is_numeric])
+  node_names <- rownames(matrix_ORFs_codon)[node_indices]
+  # For non-numeric entries (assumed to be tip labels)
+  tip_names <- dataset_with_inferred_reconstruction_codon$name_seq[!is_numeric]
+  # Merge both into a unified name vector
+  dataset_with_inferred_reconstruction_names <- character(nrow(dataset_with_inferred_reconstruction_codon))
+  # Currently the outlier is "1867", which doesn’t correspond to any row name in matrix_ORFs_codon.
+  # The reconstruction matrix includes 1867 rows.
+  # matrix_ORFs_codon only has 1866 rows.
+  # "1867" is probably just the final internal node (or an extra dummy tip) not represented in your original codon matrix.
+  valid_idx <- idx[!is.na(idx)]
+  dataset_with_inferred_reconstruction_names[is_numeric] <- node_names
+  dataset_with_inferred_reconstruction_names[!is_numeric] <- tip_names
+  
+  idx <- match(dataset_with_inferred_reconstruction_names, rownames(matrix_ORFs_codon))
+  summary(idx)
+  
   
   dataset_with_inferred_reconstruction_codon = cbind(dataset_with_inferred_reconstruction_codon, matrix_ORFs_codon[idx,a])
   dataset_with_inferred_reconstruction_AA = cbind(dataset_with_inferred_reconstruction_AA, matrix_ORFs_AA[idx,a])
@@ -692,7 +778,13 @@ build_dataframes_node_AA_codons = function(dataset_with_nodes, list_matrices_ORF
   
   return(list('dataset_with_inferred_reconstruction_codon' = dataset_with_inferred_reconstruction_codon,
               'dataset_with_inferred_reconstruction_AA' = dataset_with_inferred_reconstruction_AA))
+  
+  
 }
+
+
+
+
 
 ## Go through all orfs
 for(orf in 1:length(list_matrices_ORFs_AA_1)){
@@ -701,8 +793,10 @@ for(orf in 1:length(list_matrices_ORFs_AA_1)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_1,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_1,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("1_Data/1_5_DENV/DENV1_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV1_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
 }
+
+
 
 ## Go through all orfs for DENV 2-4
 for(orf in 1:length(list_matrices_ORFs_AA_2)){
@@ -711,7 +805,7 @@ for(orf in 1:length(list_matrices_ORFs_AA_2)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_2,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_2,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("1_Data/1_5_DENV/DENV2_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV2_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
 }
 
 for(orf in 1:length(list_matrices_ORFs_AA_3)){
@@ -720,7 +814,7 @@ for(orf in 1:length(list_matrices_ORFs_AA_3)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_3,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_3,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("1_Data/1_5_DENV/DENV3_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV3_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
 }
 
 for(orf in 1:length(list_matrices_ORFs_AA_4)){
@@ -729,7 +823,7 @@ for(orf in 1:length(list_matrices_ORFs_AA_4)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_4,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_4,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("1_Data/1_5_DENV/DENV4_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV4_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
 }
 
 
