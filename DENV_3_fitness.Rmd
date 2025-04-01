@@ -2334,7 +2334,10 @@ The SNP-sites generated vcf files are suffixed underscore_bioconda.vcf
 
 Before doing this make sure you have reconstruction files that have the AA and codon reconstructions in them
 
-```{r reconstruction_build}
+# Old Code for making reconstructions
+Instead use 2_5_reconstruct_AA_changes
+
+```{r reconstruction_build, eval=FALSE}
 
 ########################################################################################################################################
 ## Reconstruction
@@ -2455,13 +2458,11 @@ foreach(l = 1:length(locations)) %do% {
 **Error in { : task 4 failed - "length of phenotypic and of phylogenetic
 data do not match."**
 
-1/25/24: todo: Denv 4 doesn't work
 
-# ***1/26:24 ADD ORFS***
 
 ### Load in reconstructions
 
-```{r eval=FALSE}
+```{r eval=TRUE}
 #Loading In reconstrcutions 
 
 ########################################################################################################################################
@@ -2473,7 +2474,6 @@ data do not match."**
 ########################################################################################################################################
 ## Vcfs
 
-library(here)
 
 
 orf_mapping <- list(
@@ -2483,6 +2483,8 @@ orf_mapping <- list(
     "Dengue_3" = "d3_n625_degap_bioconda.vcf",
     "Dengue_4" = "d4_n477_bioconda.vcf"
   ),
+  "NS2A" =  "nonstructural protein NS2A underscore_bioconda.vcf",
+  "NS2B" = "nonstructural protein NS2B underscore_bioconda.vcf",
   "2Kfrag" = "protein 2K underscore_bioconda.vcf",
   "NS4B" = "nonstructural protein NS4B underscore_bioconda.vcf",
   "NS4A" = "nonstructural protein NS4A underscore_bioconda.vcf",
@@ -2559,14 +2561,16 @@ for (loc in locations) {
   }
 }
 
+reconstruction_locations <- c("DENV1", "DENV2", "DENV3", "DENV4")
 # Define reconstruction file paths dynamically
 reconstruction_files <- list()
-for (loc in locations) {
+for (loc in reconstruction_locations) {
   for (orf in names(orf_mapping)) {
-    file_path <- here("1_Data", "1_5_DENV", paste0(loc, "_reconstruction_", orf, ".rds"))
+    file_path <- here("4_Output_Data", "4_5_DENV", paste0(loc, "_Thai_timetree_reconstruction_", orf, ".rds"))
     reconstruction_files[[paste0(loc, "_", orf)]] <- file_path
   }
 }
+
 # Load reconstruction data
 reconstructions <- list()
 for (key in names(reconstruction_files)) {
@@ -2579,11 +2583,17 @@ for (key in names(reconstruction_files)) {
   }
 }
 
+
+
+# Fix names to match rest of vars
+names(reconstructions) <- gsub("^DENV(\\d+)", "Dengue_\\1", names(reconstructions))
+
+
 # Update the inferred reconstruction for each (location, ORF)
 for (loc in locations) {
   for (orf in names(orf_mapping)) {
     key <- paste0(loc, "_", orf)
-    
+ 
     if (!is.null(reconstructions[[key]]) &&
         !is.null(idx_mins[[loc]])) {
       current_reconstruction <- reconstructions[[key]]
@@ -2600,25 +2610,25 @@ for (loc in locations) {
       
       # Extract possible SNPs
       current_reconstruction$possible_snps <- colnames(current_reconstruction$dataset_with_inferred_reconstruction_codon)[-(1:4)]
-    }
+  
     
     
     
     # Store updated reconstruction
     reconstructions[[key]] <- current_reconstruction
+    }
   }
 }
 
 
 
-#1/25/25 TODO Update loop from 3 to 4 once DENV4 works
-#TODO 02/12/25: currently reconstruct_node_states does not output both dataset_with_inferred_reconstruction_codon and with AA sepreately so 
 
 
 
 ```
 
-1/25/25 TODO Update loop from 3 to 4 once DENV4 works
+
+
 
 Use the function *association_scores_per_group* to compute the
 association score of each mutation to each group. The function takes in
@@ -2654,14 +2664,43 @@ downstream_window = 10 # years (considering all the group)
 
 ```
 
-```{r}
+```{r scores}
+levels <- c("codon", "AA")
+scores_all <- list()
+
+for (recon_name in names(reconstructions)) {
+  for (level in levels) {
+    recon_obj <- reconstructions[[recon_name]]
+    
+    # Extract virus type and gene
+    parts <- strsplit(recon_name, "_", fixed = TRUE)[[1]]
+    virus <- paste(parts[1], parts[2], sep = "_")  # e.g., "Dengue_1"
+    gene <- paste(parts[3:length(parts)], collapse = "_")  # in case gene name has underscore
+
+    scores_all[[paste0(virus, "_", gene, "_", level)]] <- association_scores_per_group(
+      dataset_with_nodes = dataset_with_nodes_all[[virus]],
+      dataset_with_inferred_reconstruction = recon_obj[[paste0("dataset_with_inferred_reconstruction_", level)]],
+      tree = tree_DENV_all[[virus]],
+      possible_snps = recon_obj$possible_snps,
+      upstream_window = upstream_window,
+      downstream_window = downstream_window
+    )
+  }
+}
+```
+
+
+
+
+OLD Version to do manaully 
+```{r, eval = FALSE}
 
 
 ## Denv1
-scores_DENV1_thai = association_scores_per_group(dataset_with_nodes = dataset_with_nodes_1,
-                                                     dataset_with_inferred_reconstruction = Dengue_1_reconstruction_whole_genome$dataset_with_inferred_resonstruction, 
+scores_DENV1_thai_codon = association_scores_per_group(dataset_with_nodes = dataset_with_nodes_1,
+                                                     dataset_with_inferred_reconstruction = reconstructions$DENV1_E$dataset_with_inferred_reconstruction_codon, 
                                                      tree = tree_DENV1_thai, 
-                                                     possible_snps = Dengue_1_reconstruction_whole_genome$possible_snps, 
+                                                     possible_snps = reconstructions$DENV1_E$, 
                                                      upstream_window = upstream_window, 
                                                      downstream_window = downstream_window)
 
