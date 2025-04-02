@@ -3118,3 +3118,59 @@ ggsave(filename = here("3_Output_Figures",paste0("Tree_",dengue_to_plot, "_defin
 
 ```
 
+
+
+```{r examining alignments}
+# The matrix to search
+aa_matrix <- list_matrices_ORFs_AA_3$whole_genome
+
+# The motif as a vector of characters
+motif <- strsplit("MRCVG", "")[[1]] #The lead of DENV3 E
+motif_length <- length(motif)
+
+# Number of columns we can check (to stay within bounds)
+max_start <- ncol(aa_matrix) - motif_length + 1
+
+# Store matches: list of positions where motif is found
+matches <- list()
+
+for (col_start in 1:max_start) {
+  cols_to_check <- col_start:(col_start + motif_length - 1)
+  
+  # Subset the matrix columns for this window
+  window <- aa_matrix[, cols_to_check]
+  
+  # Check which rows match the motif
+  row_match <- apply(window, 1, function(x) all(x == motif))
+  
+  # If any row matches, save the column index and the row names
+  if (any(row_match)) {
+    matches[[as.character(col_start)]] <- rownames(aa_matrix)[row_match]
+  }
+}
+
+# Display results
+matches
+
+
+# Store starting column indices where motif is found in any row
+match_columns <- c()
+
+for (col_start in 1:max_start) {
+  cols_to_check <- col_start:(col_start + motif_length - 1)
+  
+  # Subset window of the matrix
+  window <- aa_matrix[, cols_to_check]
+  
+  # Check if any row matches the motif across these columns
+  match_found <- apply(window, 1, function(row_seq) all(row_seq == motif))
+  
+  if (any(match_found)) {
+    match_columns <- c(match_columns, col_start)
+  }
+}
+
+# Result: column indices where "MRCVG" starts
+match_columns
+```
+

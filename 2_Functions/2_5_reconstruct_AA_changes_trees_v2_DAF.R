@@ -13,6 +13,8 @@ library(seqinr)
 library(here)
 library(roxygen2)
 library(docstring)
+library(tidyverse)
+library(readxl)
 
 
 
@@ -520,7 +522,7 @@ for( i in 1:4) {
 ########
 
 
-process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, orf_index = NULL) {
+process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, orf_index = NULL, offset = 0) {
   #' Process a matrix of sequence data into codons and amino acids
   #'
   #' @description This function processes a matrix of nucleotide sequence data into codon and amino acid matrices.
@@ -531,6 +533,7 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, o
   #' @param matrix_data Matrix. A matrix of nucleotide sequences, where rows represent different sequences and columns represent nucleotide positions.
   #' @param anc_bayes Named vector. A reference sequence or ancestral state vector used to assign row names to output matrices.
   #' @param orf_index Integer or NULL. If provided, only the specified ORF index will be processed. If NULL (default), all ORFs are processed.
+  #' @param offset Moves the start and end of genes/orfs to align with sequences.
   #' 
   #' @return A list containing:
   #' \itemize{
@@ -553,9 +556,9 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, o
   
   # Determine the ORF indices to process
   if (is.null(orf_index)) {
-    orf_indices <- seq_len(nrow(data_orfs))  # Process all ORFs
+    orf_indices <- seq_len(nrow(data_orfs))
   } else {
-    orf_indices <- orf_index  # Process only the specified ORF
+    orf_indices <- orf_index
   }
   
   # Pre-allocate lists
@@ -563,19 +566,19 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, o
   codon_matrices <- vector("list", length = nrow(data_orfs))
   
   # Iterate over ORFs
-  for (i in seq_len(nrow(data_orfs))) {
-    print(paste("Processing ORF", i, "of", nrow(data_orfs)))  
+  for (i in orf_indices) {
+    print(paste("Processing ORF", i, "of", nrow(data_orfs)))
     
-    start_idx <- max(1, data_orfs$start[i])  
-    end_idx <- min(ncol(matrix_data), data_orfs$end[i])  # Ensure within bounds
+    start_idx <- max(1, data_orfs$Genome_Start[i] + offset)
+    end_idx <- min(ncol(matrix_data), data_orfs$Genome_End[i] + offset)
     
     if (start_idx > end_idx) {
       print(paste("Skipping ORF", i, "due to invalid index"))
       next
     }
     
-    # Extract ORF data safely
-    orf_data <- matrix_data[, start_idx:end_idx]  
+    # Extract ORF data
+    orf_data <- matrix_data[, start_idx:end_idx]
     
     # Translate to AA
     AA_matrices[[i]] <- t(apply(orf_data, 1, translate))
@@ -584,15 +587,12 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, o
     orf_length <- end_idx - start_idx + 1
     if (orf_length %% 3 != 0) {
       print(paste("Truncating ORF", i, "to nearest multiple of 3"))
-      end_idx <- start_idx + (orf_length %/% 3) * 3 - 1  # Adjust end index
-      orf_data <- matrix_data[, start_idx:end_idx]  # Re-extract data
+      end_idx <- start_idx + (orf_length %/% 3) * 3 - 1
+      orf_data <- matrix_data[, start_idx:end_idx]
     }
     
     # Compute codon matrix size
     num_codons <- (end_idx - start_idx + 1) / 3
-    codon_matrices[[i]] <- matrix(NA, nrow = nrow(matrix_data), ncol = num_codons)
-    
-    # Efficient codon extraction
     reshaped_orf <- array(orf_data, dim = c(nrow(matrix_data), 3, num_codons))
     codon_matrices[[i]] <- apply(reshaped_orf, c(1, 3), function(x) paste0(x, collapse = ""))
     
@@ -601,50 +601,84 @@ process_ORFs_into_AA_and_Codons <- function(data_orfs, matrix_data, anc_bayes, o
     rownames(codon_matrices[[i]]) <- names(anc_bayes)
   }
   
-  # Return the processed lists
   return(list(AA_matrices = AA_matrices, codon_matrices = codon_matrices))
 }
 
 
-data_orfs = read.csv("1_Data/1_5_DENV/Position_genes_Dengue.csv")
+data_orfs_tb <- read_xlsx("1_Data/1_5_DENV/DenMutationsEpiPosStica2022.xlsx", sheet = "DEN Addresses")
+data_orfs_filtered_1 <- dplyr::filter(data_orfs_tb, Serotype == "DENV1")
+data_orfs_filtered_2 <- dplyr::filter(data_orfs_tb, Serotype == "DENV2")
+data_orfs_filtered_3 <- dplyr::filter(data_orfs_tb, Serotype == "DENV3")
+data_orfs_filtered_4 <- dplyr::filter(data_orfs_tb, Serotype == "DENV4")
 
 
 Codon_AA_output_DENV1 <- process_ORFs_into_AA_and_Codons(
-  data_orfs = "1_Data/1_5_DENV/Position_genes_Dengue.csv",
+  data_orfs = data_orfs_filtered_1,
   matrix_data = matrix_data_1,
-  anc_bayes = anc.bayes_1
+  anc_bayes = anc.bayes_1,
+  offset = -94
 )
-names(Codon_AA_output_DENV1$AA_matrices) <-data_orfs$gene
-names(Codon_AA_output_DENV1$codon_matrices) <-data_orfs$gene
+
+
+names(Codon_AA_output_DENV1$AA_matrices) <-data_orfs_filtered_1$Protein
+names(Codon_AA_output_DENV1$codon_matrices) <-data_orfs_filtered_1$Protein
 
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_1 <- Codon_AA_output_DENV1$AA_matrices
 list_matrices_ORFs_codon_1 <- Codon_AA_output_DENV1$codon_matrices
 
 
+## Codon Bounds
+# Use codon matrix list (e.g. for DENV1)
+codon_list <- list_matrices_ORFs_codon_4
+
+codon_bounds <- lapply(codon_list, function(mat) {
+  if (!is.null(mat) && ncol(mat) >= 1) {
+    first_codon <- mat[1, 1]
+    last_codon <- mat[1, ncol(mat)]
+    return(data.frame(First = first_codon, Last = last_codon))
+  } else {
+    return(data.frame(First = NA, Last = NA))
+  }
+})
+
+# Combine and format
+codon_bounds_df <- do.call(rbind, codon_bounds)
+codon_bounds_df$ORF <- names(codon_bounds)
+rownames(codon_bounds_df) <- NULL
+codon_bounds_df <- codon_bounds_df[, c("ORF", "First", "Last")]
+
+
+codon_bounds_df
+
+
 ### DENV2-4
 Codon_AA_output_DENV2 <- process_ORFs_into_AA_and_Codons(
-  data_orfs = "1_Data/1_5_DENV/Position_genes_Dengue.csv",
+  data_orfs = data_orfs_filtered_2,
   matrix_data = matrix_data_2,
-  anc_bayes = anc.bayes_2
+  anc_bayes = anc.bayes_2,
+  offset = -96
 )
 
-names(Codon_AA_output_DENV2$AA_matrices) <-data_orfs$gene
-names(Codon_AA_output_DENV2$codon_matrices) <-data_orfs$gene
+names(Codon_AA_output_DENV2$AA_matrices) <-data_orfs_filtered_2$Protein
+names(Codon_AA_output_DENV2$codon_matrices) <-data_orfs_filtered_2$Protein
 
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_2 <- Codon_AA_output_DENV2$AA_matrices
 list_matrices_ORFs_codon_2 <- Codon_AA_output_DENV2$codon_matrices
 
 
+
+
 Codon_AA_output_DENV3 <- process_ORFs_into_AA_and_Codons(
-  data_orfs = "1_Data/1_5_DENV/Position_genes_Dengue.csv",
+  data_orfs = data_orfs_filtered_3,
   matrix_data = matrix_data_3,
-  anc_bayes = anc.bayes_3
+  anc_bayes = anc.bayes_3,
+  offset = -94
 )
 
-names(Codon_AA_output_DENV3$AA_matrices) <-data_orfs$gene
-names(Codon_AA_output_DENV3$codon_matrices) <-data_orfs$gene
+names(Codon_AA_output_DENV3$AA_matrices) <-data_orfs_filtered_3$Protein
+names(Codon_AA_output_DENV3$codon_matrices) <-data_orfs_filtered_3$Protein
 
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_3 <- Codon_AA_output_DENV3$AA_matrices
@@ -652,18 +686,24 @@ list_matrices_ORFs_codon_3 <- Codon_AA_output_DENV3$codon_matrices
 
 
 
+
+
+
 Codon_AA_output_DENV4 <- process_ORFs_into_AA_and_Codons(
-  data_orfs = "1_Data/1_5_DENV/Position_genes_Dengue.csv",
+  data_orfs = data_orfs_filtered_4,
   matrix_data = matrix_data_4,
-  anc_bayes = anc.bayes_4
+  anc_bayes = anc.bayes_4,
+  offset = -179
 )
 
-names(Codon_AA_output_DENV4$AA_matrices) <-data_orfs$gene
-names(Codon_AA_output_DENV4$codon_matrices) <-data_orfs$gene
+names(Codon_AA_output_DENV4$AA_matrices) <-data_orfs_filtered_4$Protein
+names(Codon_AA_output_DENV4$codon_matrices) <-data_orfs_filtered_4$Protein
 
 # Extract the lists from the returned output
 list_matrices_ORFs_AA_4 <- Codon_AA_output_DENV4$AA_matrices
 list_matrices_ORFs_codon_4 <- Codon_AA_output_DENV4$codon_matrices
+
+View(list_matrices_ORFs_codon_4$whole_genome)
 
 
 
@@ -793,7 +833,7 @@ for(orf in 1:length(list_matrices_ORFs_AA_1)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_1,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_1,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV1_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV1_Thai_timetree_reconstruction_", data_orfs_filtered_1$Protein[orf], "04_02_25", '.rds'))
 }
 
 
@@ -805,7 +845,7 @@ for(orf in 1:length(list_matrices_ORFs_AA_2)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_2,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_2,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV2_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV2_Thai_timetree_reconstruction_", data_orfs_filtered_2$Protein[orf], "04_02_25",  '.rds'))
 }
 
 for(orf in 1:length(list_matrices_ORFs_AA_3)){
@@ -814,7 +854,7 @@ for(orf in 1:length(list_matrices_ORFs_AA_3)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_3,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_3,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV3_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV3_Thai_timetree_reconstruction_", data_orfs_filtered_3$Protein[orf], "04_02_25", '.rds'))
 }
 
 for(orf in 1:length(list_matrices_ORFs_AA_4)){
@@ -823,7 +863,7 @@ for(orf in 1:length(list_matrices_ORFs_AA_4)){
                                                            list_matrices_ORFs_AA = list_matrices_ORFs_AA_4,
                                                            list_matrices_ORFs_codon = list_matrices_ORFs_codon_4,
                                                            orf = orf)
-  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV4_Thai_timetree_reconstruction_", data_orfs$gene[orf], '.rds'))
+  saveRDS(reconstruction_sig_tmp, file = paste0("4_Output_Data/4_5_DENV/DENV4_Thai_timetree_reconstruction_", data_orfs_filtered_4$Protein[orf], "04_02_25", '.rds'))
 }
 
 
