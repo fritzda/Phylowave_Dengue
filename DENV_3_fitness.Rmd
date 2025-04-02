@@ -2692,12 +2692,13 @@ for (recon_name in names(reconstructions)) {
   }
 }
 
-
 # DENV4 doesn't work and gives error 
 # Error in if (nd == rootnd) break : missing value where TRUE/FALSE needed
 
-scores_all[["Dengue_1_whole_genome_AA"]]
+scores_all[["Dengue_1_E_AA"]]
 scores_all[["Dengue_3_2Kfrag_AA"]]
+
+names(scores_all)
 ```
 
 
@@ -2798,9 +2799,16 @@ for (score_name in names(scores_all)) {
   scores_sig_all[[score_name]] <- snps_sig
 }
 
-scores_sig_all[["Dengue_1_whole_genome_codon"]]
-scores_sig_all[["Dengue_2_whole_genome_codon"]]
-scores_sig_all[["Dengue_3_whole_genome_codon"]]
+# scores_sig_all[["Dengue_1_whole_genome_codon"]]
+# scores_all$Dengue_1_E_codon[[7]]
+# head(scores_all$Dengue_1_C_codon[[7]])
+# head(scores_all$Dengue_1_E_codon[[7]])
+# 
+# scores_sig_all$Dengue_1_E_codon
+# scores_sig_all$Dengue_2_E_codon
+# scores_sig_all$Dengue_1_C_codon
+# scores_sig_all[["Dengue_2_whole_genome_codon"]]
+# scores_sig_all[["Dengue_3_whole_genome_codon"]]
 ```
 
 
@@ -2968,6 +2976,145 @@ dev.off()
 
 
 
+
+```
+
+## Plot mutations near tree
+
+```{r tree mutations}
+
+########################################################################################################################################
+## Plot Spike mutations next to tree
+########################################################################################################################################
+dengue_to_plot = 'Dengue_3'
+dengue_to_plot_num <- sub("Dengue_", "", dengue_to_plot)  # gives "2" for example
+gene_to_plot = 'E'
+plot_dataset_with_inferred_reconstruction = reconstructions[[paste0(dengue_to_plot,"_",gene_to_plot)]]$dataset_with_inferred_reconstruction_AA
+plot_score_list <- scores_sig_all[[paste0(dengue_to_plot,"_",gene_to_plot,"_AA")]]
+
+cols = get(paste0("colors_groups_", dengue_to_plot_num))
+name_groups <- get(paste0("name_groups_", dengue_to_plot_num))
+times_seqs_to_plot <- get(paste0("times_seqs_", dengue_to_plot_num))
+
+
+names(cols) = as.character(1:max(as.numeric(name_groups)))
+
+col_AA = c('white', cols, 'grey')
+names(col_AA) = c(0, as.character(1:max(as.numeric(name_groups))), 100)
+
+tree_to_plot <- tree_DENV_all[[dengue_to_plot]]
+node_data_to_plot <- dataset_with_nodes_all[[dengue_to_plot]]
+node_data_to_plot$group_str <- as.character(node_data_to_plot$groups)
+
+
+## scores_world_sig_all_AA contains a list of singificant mutations for each of the phylowave-found groups (13 for SARS). 
+## Each mutation entry takes the form "gene: AA_reference | AA_position | AA_variant" (eg. "N:D|3|L" or "ORF14:G|50|N") 
+
+
+plot_AA_mat_total = matrix(rep(100, length(which(plot_dataset_with_inferred_reconstruction$is.node == 'no'))), ncol = 1)
+## Creates a matrix (AA_mat_total) initialized with the value 100 for each sequence that is not a node in the phylogenetic tree.
+## This will be updated with mutation information later.
+
+
+## Loops through predefined mutation groups, processing each one. This is the number of groups found by the index for DENV
+for(group_to_plot in seq_along(plot_score_list)){
+  ## Retrieves the list of significant group-defining amino acid mutations (scores_world_sig_all_AA) for the current group and current gene_to_plot
+  AAs = plot_score_list[[group_to_plot]]
+  ## AAs = AAs[which(unlist(lapply(AAs, function(x)str_split(x, ':')[[1]][1])) == gene_to_plot)]
+  ## Above line would process different score format: Only processes groups that contain at least one mutation and extracts the details stored in the string: "gene: AA_reference | AA_position | AA_variant"
+   if(length(AAs) >= 1){ 
+     print(paste("Processing group", group_to_plot, "with", length(AAs), "mutations"))
+     print(AAs)
+    AAs_pos = as.numeric(unlist(lapply(AAs, function(x)str_split(x, '\\|')[[1]][2])))
+    AAs_ref = unlist(lapply(AAs, function(x)str_split(str_split(x, '\\|')[[1]][1], ':')[[1]][2]))
+    AAs_var = unlist(lapply(AAs, function(x)str_split(x, '\\|')[[1]][3]))
+    ## For eg: AAs = "S:D|614|G" results in AAs_pos = 614, AAs_ref = D and AAs_var = G 
+    
+    AA_mat = matrix(plot_dataset_with_inferred_reconstruction[which(plot_dataset_with_inferred_reconstruction$is.node == 'no'),
+                                                         which(colnames(plot_dataset_with_inferred_reconstruction) == AAs_pos[1])], ncol = 1)
+    AA_mat[which(AA_mat[,1] != AAs_ref[1] & AA_mat[,1] != AAs_var[1]),1] = NA
+    AA_mat[which(AA_mat[,1] == AAs_var[1]),1] = group_to_plot
+    AA_mat[which(AA_mat[,1] == AAs_ref[1]),1] = 0
+    ## Updates the AA matrix (AA_mat) by marking each sequence that has this variant with the group number. 
+    ## The column named for the mutaiton/SNP will now read: 
+    ## 1. NA if the row/sequence has neither the reference nor variant amino acid. 
+    ## 2. The group_to_plot (eg 13) if the sequence has the VARIANT amino acid.
+    ## 3. 0 if the sequence has the REFERENCE amino acid.
+    
+    ## Continue with other group defining mutations in that group if they exisit 
+    if(length(AAs) > 1){
+      for(i in 2:length(AAs)){
+        AA_mat = cbind(AA_mat, plot_dataset_with_inferred_reconstruction[which(plot_dataset_with_inferred_reconstruction$is.node == 'no'),
+                                                                    which(colnames(plot_dataset_with_inferred_reconstruction) == AAs_pos[i])])
+        AA_mat[which(AA_mat[,i] != AAs_ref[i] & AA_mat[,i] != AAs_var[i]),i] = NA
+        AA_mat[which(AA_mat[,i] == AAs_var[i]),i] = group_to_plot
+        AA_mat[which(AA_mat[,i] == AAs_ref[i]),i] = 0
+      }
+    }
+    ## Adds a separator column with 100 to visually separate mutation groups
+    AA_mat = cbind(AA_mat,
+                   matrix(rep(100, length(which(plot_dataset_with_inferred_reconstruction$is.node == 'no'))), ncol = 1))
+    ## Assigns column names using the mutation group and mutation details. So "S:D|614|G" becomes "13:S:D|614|G"
+    colnames(AA_mat) = c(paste0(group_to_plot, ':', AAs), group_to_plot) 
+    ## Assigns row names using the sequence names.
+    rownames(AA_mat) = plot_dataset_with_inferred_reconstruction$name_seq[which(plot_dataset_with_inferred_reconstruction$is.node == 'no')]
+    
+    plot_AA_mat_total = cbind(plot_AA_mat_total, 
+                         AA_mat)
+    ## Appends the current group’s matrix (AA_mat) to the overall mutation matrix (AA_mat_total) so that the loop can continue
+  }
+}
+
+
+
+
+
+## What is outputted is a Matrix whose rows are sequences/strains, and whose columns are significant group defining mutations 
+## that are grouped by phylowave grouping. There are spacer columns of 100s between groups of "group" columns for readability and graphing. 
+## If a strain carries that mutaiton/SNP the cell will have a number corresponding to the group associated with that mutaiton (eg 1-13)
+## If a strain has the reference amino accid at that positon the cell will read 0 and NA if the strain has a diferrent AA from both the ref and variant
+
+## At this stage the matrix is essentially colored by group. 
+## The 100s spacers now become grey vertical bars. And strains without the mutation at that position are white
+
+
+
+plot_tree_Dengue_gene_groups <- ggtree(tree_to_plot, mrsd = lubridate::date_decimal(max(times_seqs_to_plot)), size = 0.08) %<+% node_data_to_plot +
+  aes(color = node_data_to_plot$group_str) +
+  scale_color_manual(values = cols) +
+  ggplot2::ylim(-0.5, NA) +
+  coord_cartesian(clip = "off")
+
+
+
+plot_tree_Dengue_gene_groups
+title_label <- paste0(dengue_to_plot, " | ", gene_to_plot)
+
+## Plot the AA_mat as a heatmap colored by group showing strains with the lineage definining SNPs
+plot_tree_Dengue_gene_groups_heat = gheatmap(plot_tree_Dengue_gene_groups, 
+                                       plot_AA_mat_total, 
+                                       offset=0.1, width=10, 
+                                       colnames=T, 
+                                       colnames_position="top",
+                                       colnames_angle=90, hjust=0, font.size=2.5,
+                                       legend_title="Group", color=NA) +
+  scale_fill_manual(values = col_AA, na.value = 'white')+
+  coord_cartesian(clip = "off") +
+  ggtitle(title_label) +
+  theme(
+    legend.position = 'none',
+    plot.title = element_text(hjust = 0.1, size = 12, face = "bold"),
+    plot.title.position = "panel"
+  )
+
+plot_tree_Dengue_gene_groups_heat
+
+ggsave(filename = here("3_Output_Figures",paste0("Tree_",dengue_to_plot, "_defining_", gene_to_plot, "_mutations.pdf")),
+       plot = plot_tree_Dengue_gene_groups_heat, device = 'pdf', scale = 1, width = 25, height = 18, units = 'cm')
+########################################################################################################################################
+
+
+## Repeat for other genes of interest (vs S) with other reconstructions (vs reconstruction_world_S) or other locations (vs World) 
 
 ```
 
