@@ -140,19 +140,30 @@ association_scores_per_group = function(dataset_with_nodes, dataset_with_inferre
     
     ## Update members list, with strains upstream, within the time window
     ancest = Ancestors(x = tree, node = mrca_node, type = 'all')
-    time_ancest = dataset_with_nodes$time[ancest]
-    time_ancest[1] = time_mrca ## Always keep the first ancestor node
-    tmp = which(time_ancest < time_mrca - upstream_window)
-    if(length(tmp) > 0) ancest = ancest[-tmp]  ## Remove nodes that are outside the time window
-    if(length(ancest) == 0) ancest = Ancestors(x = tree, node = mrca_node, type = 'all')[1]
-    groups_ancest = dataset_with_nodes$groups[ancest]
-    gr = min(as.numeric(as.character(groups_ancest)))
-    ancest = ancest[which(groups_ancest == gr)] ## Makes sure we only have the directly ancestral group, not more
-    time_ancest = dataset_with_nodes$time[ancest]
+    
+    if (length(ancest) == 0) {
+      cat("⚠️ Group", j, "in", virus, gene, level, "has MRCA at root → no ancestors available\n")
+      
+      # Use just members for downstream analysis (no ancestors to add)
+      all_nodes_of_interest <- members
+    } else {
+      # Normal case: Use members + valid ancestors
+      time_ancest = dataset_with_nodes$time[ancest]
+      time_ancest[1] = time_mrca
+      tmp = which(time_ancest < time_mrca - upstream_window)
+      if(length(tmp) > 0) ancest = ancest[-tmp]
+      if(length(ancest) == 0) ancest = Ancestors(tree, node = mrca, type = 'all')[1]
+      groups_ancest = dataset_with_nodes$groups[ancest]
+      gr = min(as.numeric(as.character(groups_ancest)))
+      ancest = ancest[which(groups_ancest == gr)]
+      time_ancest = dataset_with_nodes$time[ancest]
+      
+      all_nodes_of_interest <- unique(c(ancest, members))
+    }
     
     ## Branches of interest
     branches = tree$edge
-    branches = branches[match(c(ancest, members), branches[,2]),] ## Take all tips, from ancests, members
+    branches = branches[match(all_nodes_of_interest, branches[,2]),] ## Take all tips, from ancests, members
     tmp = which(is.na(match(branches[,1], c(ancest, members))))
     if(length(tmp) > 0){  branches = branches[-tmp, ]} ## Remove nodes that are not in ancest or members
     
@@ -172,38 +183,43 @@ association_scores_per_group = function(dataset_with_nodes, dataset_with_inferre
     
     snps = time_diff = snps_props_within = snps_props_whole = names_possibles_snps = NULL
     
+    
+    cat("👉 DEBUG: group", j, "(", group_names[j], ") in", virus, gene, level, "\n")
+    cat("Number of members:", length(members), "\n")
+    cat("Number of ancestors:", length(ancest), "\n")
+    cat("Branches:", nrow(branches), "\n")
+    cat("Possible SNPs:", length(possible_snps), "\n")
     ## Extracts SNP states for the start and end nodes of each branch for the current SNP.
-    for(i in 1:length(possible_snps)){
-      branches_snp = branches
-      branches_snp[,1] = dataset_with_inferred_reconstruction[branches[,1],
-                                                              which(colnames(dataset_with_inferred_reconstruction) == possible_snps[i])]
-      branches_snp[,2] = dataset_with_inferred_reconstruction[branches[,2],
-                                                              which(colnames(dataset_with_inferred_reconstruction) == possible_snps[i])]
+    
+    scores[[j]] <- numeric(length(possible_snps))
+    
+    for (i in 1:length(possible_snps)) {
+      snp_name <- possible_snps[i]
+      col_idx <- which(colnames(dataset_with_inferred_reconstruction) == snp_name)
+      branches_snp <- branches
+      branches_snp[, 1] <- dataset_with_inferred_reconstruction[branches[, 1], col_idx]
+      branches_snp[, 2] <- dataset_with_inferred_reconstruction[branches[, 2], col_idx]
       
-      ancestral_state = branches_snp[which.min(branches[,1]),1]
-      
-      k=1
-      ancestral_state = branches_snp[which(branches[,1] == rev(ancest)[k]),1]
-      k=2
-      
-      ## Handles missing or ambiguous SNP states (n or X) by imputing them based on the ancestral state.
-      while(str_detect(ancestral_state, pattern = 'n|X') == TRUE & k <= length(ancest)-1){
-        current_ancestor <- rev(ancest)[k]
-        idx <- which(branches[,1] == current_ancestor)
-        
-        if (length(idx) == 0) {
-          cat("⚠️ No match for ancestor node in branches[,1]\n")
-          cat("  Current group j =", j, "\n")
-          cat("  Ancestor node (rev(ancest)[", k, "]) =", current_ancestor, "\n")
-          cat("  Ancest vector:\n"); print(ancest)
-          cat("  Branches head:\n"); print(head(branches))
-          break
+      if (length(ancest) == 0) {
+        ancestral_state <- dataset_with_inferred_reconstruction[mrca_node, col_idx]
+      } else {
+        k <- 1
+        ancestral_state <- branches_snp[which(branches[, 1] == rev(ancest)[k]), 1]
+        k <- 2
+        while (str_detect(ancestral_state, pattern = 'n|X') == TRUE & k <= length(ancest) - 1) {
+          current_ancestor <- rev(ancest)[k]
+          idx <- which(branches[, 1] == current_ancestor)
+          if (length(idx) == 0) {
+            cat("⚠️ No match for ancestor node in branches[,1] at SNP", i, "\n")
+            break
           }
-        
-        ancestral_state <- branches_snp[idx, 1]
-        k <- k + 1
-        
+          ancestral_state <- branches_snp[idx, 1]
+          k <- k + 1
         }
+        if (str_detect(ancestral_state, pattern = 'n|X') == TRUE) {
+          ancestral_state <- branches_snp[which(branches[, 1] == mrca_node), 1][1]
+        }
+      }
       
       branches_snp[str_detect(branches_snp, pattern = 'n|X')] = ancestral_state
       
@@ -218,6 +234,11 @@ association_scores_per_group = function(dataset_with_nodes, dataset_with_inferre
       Sx = as.numeric(branches_snp_bin[tmp,])
       ## Sx = 1 → If the SNP is mutated at that position.
       ##Sx = 0 → If the SNP retains the ancestral state.
+      if (length(Px) == 0) {
+        scores[[j]][i] <- NA
+        names_possibles_snps <- c(names_possibles_snps, paste0(ancestral_state, '|', snp_name, '|NA'))
+        next
+      }
       score3 <- (sum((1 - Px)*(1 - Sx), na.rm=TRUE) + sum(Px*Sx, na.rm=TRUE)) / length(Px)
       ## Px: Presence/absence of the phylogenetic group.
       ## Sx: Presence/absence of the SNP.
@@ -227,10 +248,15 @@ association_scores_per_group = function(dataset_with_nodes, dataset_with_inferre
       
       scores[[j]][i] = score3
       
-      t = table(branches_snp)
-      t = t[which(names(t) != ancestral_state)]
-      t = t[which.max(t)]
-      names_possibles_snps = c(names_possibles_snps, paste0(ancestral_state, '|', possible_snps[i], '|', names(t)))
+      t <- table(branches_snp)
+      if (length(t) == 0 || all(names(t) == ancestral_state)) {
+        names_possibles_snps <- c(names_possibles_snps, paste0(ancestral_state, '|', snp_name, '|NA'))
+      } else {
+        t <- t[names(t) != ancestral_state]
+        derived_state <- names(t)[which.max(t)]
+        names_possibles_snps <- c(names_possibles_snps, paste0(ancestral_state, '|', snp_name, '|', derived_state))
+      }
+      
     }
     scores[[j]] = scores[[j]]#- median(scores[[j]])
     names(scores[[j]]) = names_possibles_snps
@@ -2272,7 +2298,7 @@ tree_DENV4_thai <-  tree_DENV4
 
 
 ## Timed-tree
-tree_DENV_all = list(tree_DENV1_thai,tree_DENV2_thai, tree_DENV3_thai, tree_DENV3_thai
+tree_DENV_all = list(tree_DENV1_thai,tree_DENV2_thai, tree_DENV3_thai, tree_DENV4_thai
 )
 names(tree_DENV_all) = locations
 
@@ -2508,12 +2534,11 @@ orf_mapping <- list(
   "NS4B" = "nonstructural protein NS4B underscore_bioconda.vcf",
   "NS4A" = "nonstructural protein NS4A underscore_bioconda.vcf",
   "NS3" = "nonstructural protein NS3 underscore_bioconda.vcf",
-  "NS2B" = "nonstructural protein NS2B underscore_bioconda.vcf",
+  "NS5" = "nonstructural protein NS5 underscore_bioconda.vcf",
   "NS1" = "nonstructural protein NS1 underscore_bioconda.vcf",
   "prM" = "membrane glycoprotein precursor M underscore_bioconda.vcf",
   "E" = "envelope protein E underscore_bioconda.vcf",
-  "C" = "anchored capsid protein C underscore_bioconda.vcf",
-  "NS5" = "RNA-dependent RNA polymerase NS5 underscore_bioconda.vcf"
+  "C" = "anchored capsid protein C underscore_bioconda.vcf"
 )
 
 # Define VCF file paths dynamically using here()
@@ -2708,42 +2733,44 @@ for (recon_name in names(reconstructions)) {
   }
 }
 
-#Debug version
-for (recon_name in names(reconstructions)) {
-  for (level in levels) {
-    recon_obj <- reconstructions[[recon_name]]
-    
-    # Extract virus type and gene
-    parts <- strsplit(recon_name, "_", fixed = TRUE)[[1]]
-    virus <- paste(parts[1], parts[2], sep = "_")
-    gene <- paste(parts[3:length(parts)], collapse = "_")
+# #Debug version
+# for (recon_name in names(reconstructions)) {
+#   for (level in levels) {
+#     recon_obj <- reconstructions[[recon_name]]
+#     
+#     # Extract virus type and gene
+#     parts <- strsplit(recon_name, "_", fixed = TRUE)[[1]]
+#     virus <- paste(parts[1], parts[2], sep = "_")
+#     gene <- paste(parts[3:length(parts)], collapse = "_")
+# 
+#     cat("For:", virus, ",level", level, "\n")
+#     
+#     result <- tryCatch({
+#       association_scores_per_group(
+#         dataset_with_nodes = dataset_with_nodes_all[[virus]],
+#         dataset_with_inferred_reconstruction = recon_obj[[paste0("dataset_with_inferred_reconstruction_", level)]],
+#         tree = tree_DENV_all[[virus]],
+#         possible_snps = recon_obj$possible_snps,
+#         upstream_window = upstream_window,
+#         downstream_window = downstream_window
+#       )
+#     }, error = function(e) {
+#       cat("⚠️ ERROR for:", virus, gene, "level:", level, "\n")
+#       cat("Message:", e$message, "\n")
+#       return(NULL)
+#     })
+# 
+#     scores_all[[paste0(virus, "_", gene, "_", level)]] <- result
+#   }
+# }
 
-    cat("For:", virus, ",level", level, "\n")
-    
-    result <- tryCatch({
-      association_scores_per_group(
-        dataset_with_nodes = dataset_with_nodes_all[[virus]],
-        dataset_with_inferred_reconstruction = recon_obj[[paste0("dataset_with_inferred_reconstruction_", level)]],
-        tree = tree_DENV_all[[virus]],
-        possible_snps = recon_obj$possible_snps,
-        upstream_window = upstream_window,
-        downstream_window = downstream_window
-      )
-    }, error = function(e) {
-      cat("⚠️ ERROR for:", virus, gene, "level:", level, "\n")
-      cat("Message:", e$message, "\n")
-      return(NULL)
-    })
+# rm(virus,tree,nodes,recon,group_names,group_tips)
 
-    scores_all[[paste0(virus, "_", gene, "_", level)]] <- result
-  }
-}
+#DENV4 Group 2 is at the MRCA (no ancestors) so changed the association code to permit this.
 
-# DENV4 doesn't work and gives error 
-# Error in if (nd == rootnd) break : missing value where TRUE/FALSE needed
 
-scores_all[["Dengue_1_E_AA"]]
-scores_all[["Dengue_3_2Kfrag_AA"]]
+scores_all[["Dengue_4_E_AA"]]
+scores_all[["Dengue_4_2Kfrag_AA"]]
 
 names(scores_all)
 ```
@@ -2800,7 +2827,7 @@ save.image('Raw_scores_detection_DENV1to3_thai_01_25_2025.Rdata')
 ########################################################################################################################################
 ## Find significant snps
 ########################################################################################################################################
-sig_threshold <- 0.8
+sig_threshold <- 0.75 #TODO Where to set this
 scores_sig_all <- list()
 
 for (score_name in names(scores_all)) {
@@ -2866,7 +2893,22 @@ for (score_name in names(scores_all)) {
 ########################################################################################################################################
 ## Full genome, substitutions (NS, ie AA change) with signal
 ########################################################################################################################################
-genes <- read.csv("1_Data/1_5_DENV/Position_genes_Dengue.csv")
+
+data_orfs_tb <- read_xlsx("1_Data/1_5_DENV/DenMutationsEpiPosStica2022.xlsx", sheet = "DEN Addresses")
+
+get_genes_for_serotype <- function(df, serotype) {
+  df %>%
+    dplyr::filter(Serotype == serotype) %>%
+    dplyr::select(gene = Protein, start = Genome_Start, end = Genome_End) %>%
+    dplyr::arrange(start)
+}
+gene_tables <- list(
+  Dengue_1 = get_genes_for_serotype(data_orfs_tb, "DENV1"),
+  Dengue_2 = get_genes_for_serotype(data_orfs_tb, "DENV2"),
+  Dengue_3 = get_genes_for_serotype(data_orfs_tb, "DENV3"),
+  Dengue_4 = get_genes_for_serotype(data_orfs_tb, "DENV4")
+)
+
 
 # Pull only full genome AA entries
 full_genome_score_names <- grep("whole_genome_AA$", names(scores_all), value = TRUE)
@@ -2892,6 +2934,8 @@ for (name in full_genome_score_names) {
 
 
 plot_dengue_genome_AA_density <- function(scores, genes_table, gene_colors = NULL) {
+  genes_table <- dplyr::filter(genes_table, tolower(gene) != "whole_genome")
+  
   if (is.null(gene_colors)) {
     gene_colors <- grDevices::rainbow(nrow(genes_table), alpha = 0.25)
   }
@@ -2941,10 +2985,11 @@ plot_dengue_genome_AA_density <- function(scores, genes_table, gene_colors = NUL
 
 gene_colors <- MetBrewer::met.brewer(name = "Derain", n = nrow(genes))
 
+
 # Plot for Dengue_1
 plot_dengue_genome_AA_density(
   scores = scores_dengue_full_genome_AA[["Dengue_1"]],
-  genes_table = genes,
+  genes_table = gene_tables[["Dengue_1"]],
   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
   
 )
@@ -2953,7 +2998,7 @@ plot_dengue_genome_AA_density(
 pdf(file = here("3_Output_Figures", "Plot_Dengue1_AA_genome_density.pdf"), width = 10, height = 5)
 plot_dengue_genome_AA_density(
   scores = scores_dengue_full_genome_AA[["Dengue_1"]],
-  genes_table = genes,
+  genes_table = gene_tables[["Dengue_1"]],
   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
 )
 dev.off()
@@ -2961,7 +3006,7 @@ dev.off()
 # Plot for Dengue_2
 plot_dengue_genome_AA_density(
   scores = scores_dengue_full_genome_AA[["Dengue_2"]],
-  genes_table = genes,
+  genes_table = gene_tables[["Dengue_2"]],
   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
   
 )
@@ -2970,7 +3015,7 @@ plot_dengue_genome_AA_density(
 pdf(file = here("3_Output_Figures", "Plot_Dengue2_AA_genome_density.pdf"), width = 10, height = 5)
 plot_dengue_genome_AA_density(
   scores = scores_dengue_full_genome_AA[["Dengue_2"]],
-  genes_table = genes,
+  genes_table = gene_tables[["Dengue_2"]],
   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
 )
 dev.off()
@@ -2979,7 +3024,7 @@ dev.off()
 # Plot for Dengue_3
 plot_dengue_genome_AA_density(
   scores = scores_dengue_full_genome_AA[["Dengue_3"]],
-  genes_table = genes,
+  genes_table = gene_tables[["Dengue_3"]],
   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
   
 )
@@ -2988,29 +3033,29 @@ plot_dengue_genome_AA_density(
 pdf(file = here("3_Output_Figures", "Plot_Dengue3_AA_genome_density.pdf"), width = 10, height = 5)
 plot_dengue_genome_AA_density(
   scores = scores_dengue_full_genome_AA[["Dengue_3"]],
-  genes_table = genes,
+    genes_table = gene_tables[["Dengue_3"]],
   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
 )
 dev.off()
 
 
-# # Plot for Dengue_4
-# plot_dengue_genome_AA_density(
-#   scores = scores_dengue_full_genome_AA[["Dengue_4"]],
-#   genes_table = genes,
-#   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
-#   
-# )
-# 
-# # Save
-# pdf(file = here("3_Output_Figures", "Plot_Dengue4_AA_genome_density.pdf"), width = 10, height = 5)
-# plot_dengue_genome_AA_density(
-#   scores = scores_dengue_full_genome_AA[["Dengue_4"]],
-#   genes_table = genes,
-#   gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
-# )
-# dev.off()
-# 
+# Plot for Dengue_4
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_4"]],
+  genes_table = gene_tables[["Dengue_4"]],
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+
+)
+
+# Save
+pdf(file = here("3_Output_Figures", "Plot_Dengue4_AA_genome_density.pdf"), width = 10, height = 5)
+plot_dengue_genome_AA_density(
+  scores = scores_dengue_full_genome_AA[["Dengue_4"]],
+  genes_table = gene_tables[["Dengue_4"]],
+  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
+)
+dev.off()
+
 
 
 
@@ -3031,7 +3076,7 @@ dev.off()
 ########################################################################################################################################
 dengue_to_plot = 'Dengue_3'
 dengue_to_plot_num <- sub("Dengue_", "", dengue_to_plot)  # gives "2" for example
-gene_to_plot = 'E'
+gene_to_plot = 'NS5'
 plot_dataset_with_inferred_reconstruction = reconstructions[[paste0(dengue_to_plot,"_",gene_to_plot)]]$dataset_with_inferred_reconstruction_AA
 plot_score_list <- scores_sig_all[[paste0(dengue_to_plot,"_",gene_to_plot,"_AA")]]
 
@@ -3159,7 +3204,140 @@ ggsave(filename = here("3_Output_Figures",paste0("Tree_",dengue_to_plot, "_defin
 
 ## Repeat for other genes of interest (vs S) with other reconstructions (vs reconstruction_world_S) or other locations (vs World) 
 
+
+ 
+
+plot_dengue_gene_heatmap <- function(dengue_to_plot, gene_to_plot) {
+  dengue_to_plot_num <- sub("Dengue_", "", dengue_to_plot)
+  
+  cols <- get(paste0("colors_groups_", dengue_to_plot_num))
+  name_groups <- get(paste0("name_groups_", dengue_to_plot_num))
+  times_seqs_to_plot <- get(paste0("times_seqs_", dengue_to_plot_num))
+  tree_to_plot <- tree_DENV_all[[dengue_to_plot]]
+  node_data_to_plot <- dataset_with_nodes_all[[dengue_to_plot]]
+  node_data_to_plot$group_str <- as.character(node_data_to_plot$groups)
+  
+  names(cols) <- as.character(1:max(as.numeric(name_groups)))
+  col_AA <- c('white', cols, 'grey')
+  names(col_AA) <- c(0, as.character(1:max(as.numeric(name_groups))), 100)
+  
+  plot_dataset <- reconstructions[[paste0(dengue_to_plot, "_", gene_to_plot)]]$dataset_with_inferred_reconstruction_AA
+  plot_score_list <- scores_sig_all[[paste0(dengue_to_plot, "_", gene_to_plot, "_AA")]]
+  
+  num_seqs <- sum(plot_dataset$is.node == "no")
+  seq_names <- plot_dataset$name_seq[plot_dataset$is.node == "no"]
+  plot_AA_mat_total <- matrix(rep(100, num_seqs), ncol = 1)
+  rownames(plot_AA_mat_total) <- seq_names
+  
+  colnames(plot_AA_mat_total) <- ""
+  
+  for (group_to_plot in seq_along(plot_score_list)) {
+    AAs <- plot_score_list[[group_to_plot]]
+    if (length(AAs) >= 1) {
+      AAs_pos <- as.numeric(sapply(AAs, function(x) str_split(x, '\\|')[[1]][2]))
+      AAs_ref <- sapply(AAs, function(x) str_split(str_split(x, '\\|')[[1]][1], ':')[[1]][2])
+      AAs_var <- sapply(AAs, function(x) str_split(x, '\\|')[[1]][3])
+      
+      AA_mat <- matrix(
+        plot_dataset[plot_dataset$is.node == "no", which(colnames(plot_dataset) == AAs_pos[1])],
+        ncol = 1
+      )
+      AA_mat[AA_mat[,1] != AAs_ref[1] & AA_mat[,1] != AAs_var[1], 1] <- NA
+      AA_mat[AA_mat[,1] == AAs_var[1], 1] <- group_to_plot
+      AA_mat[AA_mat[,1] == AAs_ref[1], 1] <- 0
+      
+      if (length(AAs) > 1) {
+        for (i in 2:length(AAs)) {
+          next_col <- plot_dataset[plot_dataset$is.node == "no", which(colnames(plot_dataset) == AAs_pos[i])]
+          next_col[next_col != AAs_ref[i] & next_col != AAs_var[i]] <- NA
+          next_col[next_col == AAs_var[i]] <- group_to_plot
+          next_col[next_col == AAs_ref[i]] <- 0
+          AA_mat <- cbind(AA_mat, next_col)
+        }
+      }
+      
+      rownames(AA_mat) <- seq_names
+      colnames(AA_mat) <- paste0(group_to_plot, ':', AAs)
+      
+      # Add spacer after setting colnames
+      spacer_col <- matrix(100, nrow = nrow(AA_mat), ncol = 1)
+      AA_mat <- cbind(AA_mat, spacer_col)
+      colnames(AA_mat)[ncol(AA_mat)] <- group_to_plot
+      
+      # Append to master matrix
+      plot_AA_mat_total <- cbind(plot_AA_mat_total, AA_mat)
+    }
+  }
+  
+  plot_tree <- ggtree(tree_to_plot, mrsd = lubridate::date_decimal(max(times_seqs_to_plot)), size = 0.08) %<+%
+    node_data_to_plot +
+    aes(color = node_data_to_plot$group_str) +
+    scale_color_manual(values = cols) +
+    ggplot2::ylim(-0.5, NA) +
+    coord_cartesian(clip = "off")
+
+  
+  title_label <- paste0(dengue_to_plot, " | ", gene_to_plot)
+  
+  
+  heatmap_plot <- gheatmap(plot_tree,
+                           plot_AA_mat_total,
+                           offset = 0.1,
+                           width = 10,
+                           colnames = TRUE,
+                           colnames_position = "top",
+                           colnames_angle = 90,
+                           hjust = 0,
+                           font.size = 2.5,
+                           legend_title = "Group",
+                           color = NA) +
+    scale_fill_manual(values = col_AA, na.value = "white") +
+    coord_cartesian(clip = "off") +
+    ggtitle(title_label) +
+    theme(
+      legend.position = "none",
+      plot.title = element_text(hjust = 0.1, size = 12, face = "bold"),
+      plot.title.position = "panel"
+    )
+  
+  print(heatmap_plot)
+  
+  ggsave(
+    filename = here("3_Output_Figures", paste0("Tree_", dengue_to_plot, "_defining_", gene_to_plot, "_mutations.pdf")),
+    plot = heatmap_plot,
+    device = 'pdf',
+    scale = 1,
+    width = 25,
+    height = 18,
+    units = 'cm'
+  )
+}
+
+genes_to_plot <- c("C"  ,  "prM" , "E"   , "NS1"  ,"NS2A" ,"NS2B", "NS3" , "NS4A" ,"NS4B" ,"NS5", "whole_genome" )
+for(gene in genes_to_plot){
+  cat("Plotting:" ,gene, "\n")
+  try({
+plot_dengue_gene_heatmap("Dengue_4", gene)
+}, silent = TRUE )
+}
+
+
+plot_dengue_gene_heatmap("Dengue_1", "prM")
+
+
+
+  
+  ggsave(filename = here("3_Output_Figures", paste0("Tree_", dengue_to_plot, "_defining_", gene_to_plot, "_mutations.pdf")),
+         plot = heatmap_plot, device = 'pdf', scale = 1, width = 25, height = 18, units = 'cm')
+  
+  
 ```
+
+
+
+
+
+
 
 
 
