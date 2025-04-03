@@ -118,28 +118,33 @@ association_scores_per_group = function(dataset_with_nodes, dataset_with_inferre
   
   ## For each group (except the initial group, which is the root), look at snp association
   for(j in 1:(length(group_names)-1)){ 
-    print(j)
+    cat("Working on group", j, "of", length(group_names)-1, "\n")
     
     ## Find members of the group and MRCA
     ## Identifies members of the current group and its MRCA. Ensures the MRCA is included in the list of members.
     members = dataset_with_nodes$ID[which(dataset_with_nodes$groups == group_names[j])]
-    mrca = getMRCA(tree, dataset_with_nodes$name_seq[which(dataset_with_nodes$groups == group_names[j] & dataset_with_nodes$is.node == 'no')])
-    members = unique(c(members, mrca))
+    
+    mrca_node = getMRCA(tree, dataset_with_nodes$name_seq[which(dataset_with_nodes$groups == group_names[j] & dataset_with_nodes$is.node == 'no')])
+    if (is.null(mrca_node) || is.na(mrca_node)) {
+      cat("⚠️ getMRCA failed for group", j, "in",dataset_with_nodes, "\n")
+      next
+      }
+    members = unique(c(members, mrca_node))
     
     ## Update members list, with strains downstream, within the time window
     ## Identifies members of the current group and its MRCA. Ensures the MRCA is included in the list of members.
-    time_mrca = dataset_with_nodes$time[which(dataset_with_nodes$ID == mrca)] ## Reference time for window
+    time_mrca = dataset_with_nodes$time[which(dataset_with_nodes$ID == mrca_node)] ## Reference time for window
     # tmp = getDescendants(tree, mrca)
     # tmp = tmp[which(dataset_with_nodes$time[tmp] < time_mrca + downstream_window)]
     # members = unique(c(tmp, members))
     
     ## Update members list, with strains upstream, within the time window
-    ancest = Ancestors(x = tree, node = mrca, type = 'all')
+    ancest = Ancestors(x = tree, node = mrca_node, type = 'all')
     time_ancest = dataset_with_nodes$time[ancest]
     time_ancest[1] = time_mrca ## Always keep the first ancestor node
     tmp = which(time_ancest < time_mrca - upstream_window)
     if(length(tmp) > 0) ancest = ancest[-tmp]  ## Remove nodes that are outside the time window
-    if(length(ancest) == 0) ancest = Ancestors(x = tree, node = mrca, type = 'all')[1]
+    if(length(ancest) == 0) ancest = Ancestors(x = tree, node = mrca_node, type = 'all')[1]
     groups_ancest = dataset_with_nodes$groups[ancest]
     gr = min(as.numeric(as.character(groups_ancest)))
     ancest = ancest[which(groups_ancest == gr)] ## Makes sure we only have the directly ancestral group, not more
@@ -182,13 +187,23 @@ association_scores_per_group = function(dataset_with_nodes, dataset_with_inferre
       k=2
       
       ## Handles missing or ambiguous SNP states (n or X) by imputing them based on the ancestral state.
-      while(str_detect(ancestral_state, pattern = 'n|X') == T & k <= length(ancest)-1){
-        ancestral_state = branches_snp[which(branches[,1] == rev(ancest)[k]),1]
-        k=k+1
-      }
-      if(str_detect(ancestral_state, pattern = 'n|X') == T){
-        ancestral_state = branches_snp[which(branches[,1] == mrca),1][1]
-      }
+      while(str_detect(ancestral_state, pattern = 'n|X') == TRUE & k <= length(ancest)-1){
+        current_ancestor <- rev(ancest)[k]
+        idx <- which(branches[,1] == current_ancestor)
+        
+        if (length(idx) == 0) {
+          cat("⚠️ No match for ancestor node in branches[,1]\n")
+          cat("  Current group j =", j, "\n")
+          cat("  Ancestor node (rev(ancest)[", k, "]) =", current_ancestor, "\n")
+          cat("  Ancest vector:\n"); print(ancest)
+          cat("  Branches head:\n"); print(head(branches))
+          break
+          }
+        
+        ancestral_state <- branches_snp[idx, 1]
+        k <- k + 1
+        
+        }
       
       branches_snp[str_detect(branches_snp, pattern = 'n|X')] = ancestral_state
       
@@ -2570,7 +2585,7 @@ reconstruction_locations <- c("DENV1", "DENV2", "DENV3", "DENV4")
 reconstruction_files <- list()
 for (loc in reconstruction_locations) {
   for (orf in names(orf_mapping)) {
-    file_path <- here("4_Output_Data", "4_5_DENV", paste0(loc, "_Thai_timetree_reconstruction_", orf, ".rds"))
+    file_path <- here("4_Output_Data", "4_5_DENV", paste0(loc, "_Thai_timetree_reconstruction_", orf,"04_02_25.rds"))
     reconstruction_files[[paste0(loc, "_", orf)]] <- file_path
   }
 }
@@ -2653,7 +2668,7 @@ The codes to perform this analysis on the SARS-CoV-2 data is available
 in the file *2_4_Lineage_Defining_mutations.R*, in the folder
 `2_Functions`.
 
-1/25/25: todo Determining upsteam_window and downstream window. Kept as
+1/25/25: TODO Determining upsteam_window and downstream window. Kept as
 sars defaults
 
 ```{r SNP_associations}
@@ -2673,9 +2688,10 @@ levels <- c("codon", "AA")
 scores_all <- list()
 
 for (recon_name in names(reconstructions)) {
+  
   for (level in levels) {
     recon_obj <- reconstructions[[recon_name]]
-    
+    cat("For:", recon_name, ",level", level, "\n")
     # Extract virus type and gene
     parts <- strsplit(recon_name, "_", fixed = TRUE)[[1]]
     virus <- paste(parts[1], parts[2], sep = "_")  # e.g., "Dengue_1"
@@ -2689,6 +2705,37 @@ for (recon_name in names(reconstructions)) {
       upstream_window = upstream_window,
       downstream_window = downstream_window
     )
+  }
+}
+
+#Debug version
+for (recon_name in names(reconstructions)) {
+  for (level in levels) {
+    recon_obj <- reconstructions[[recon_name]]
+    
+    # Extract virus type and gene
+    parts <- strsplit(recon_name, "_", fixed = TRUE)[[1]]
+    virus <- paste(parts[1], parts[2], sep = "_")
+    gene <- paste(parts[3:length(parts)], collapse = "_")
+
+    cat("For:", virus, ",level", level, "\n")
+    
+    result <- tryCatch({
+      association_scores_per_group(
+        dataset_with_nodes = dataset_with_nodes_all[[virus]],
+        dataset_with_inferred_reconstruction = recon_obj[[paste0("dataset_with_inferred_reconstruction_", level)]],
+        tree = tree_DENV_all[[virus]],
+        possible_snps = recon_obj$possible_snps,
+        upstream_window = upstream_window,
+        downstream_window = downstream_window
+      )
+    }, error = function(e) {
+      cat("⚠️ ERROR for:", virus, gene, "level:", level, "\n")
+      cat("Message:", e$message, "\n")
+      return(NULL)
+    })
+
+    scores_all[[paste0(virus, "_", gene, "_", level)]] <- result
   }
 }
 
@@ -2964,10 +3011,6 @@ dev.off()
 # )
 # dev.off()
 # 
-
-
-
-
 
 
 
