@@ -157,9 +157,9 @@ functions{
       theta[,1] = theta[,1] - theta[K, 1]; // Make sure the reference is at 0
     } // Else: reference is already at 0 
     for (n in 2:N){  //for each year
-    
+
       // Get IDs of the lineages that were present at time t-1
-      int num_lin_t1 = num_below(t_start, t[n-1]); 
+      int num_lin_t1 = num_below(t_start, t[n-1]);
       array[num_lin_t1] int which_lin_presence_t1;
       which_lin_presence_t1 = which_below(t_start, t[n-1]);
 
@@ -182,14 +182,16 @@ functions{
           theta[k,n] = theta[k,(n-1)]; // reference
         }
       }
-      for (i in 1:K){ // We deal with parent sepratelty, and make the new lienages appear 
+      for (i in 1:K){ // We deal with parent sepratelty, and make the new lienages appear
         int n_parents = num_matches(is_new_lineage,  K-i+1); // Count number of parents that produce a new lieange at this time step
         if(n_parents > 0){
           // Get indexes of the new lineages
           array[n_parents] int idx;
           idx = which_equal(is_new_lineage, K-i+1);
-          idx = idx[sort_indices_asc(t_start[idx])]; // sort idx by increaseing t_starts
-          
+          if(n_parents > 1){
+            idx = idx[sort_indices_asc(t_start[idx])];
+          }
+
           // Store the parent initial theta (at time t-1, or t_start if the parent also appeared wihtin this time step)
           real tmp;
           if(num_matches(which_lin_presence_t1, K-i+1) == 1){
@@ -201,7 +203,7 @@ functions{
           }else{
             tmp = theta[K-i+1,n] - beta[K-i+1]*(t_start[idx[1]]-t_start[K-i+1]);
           }
-          
+
           // Rather complex loop to compute the thetas of the offspring, and update parent's theta
           for (j in 1:num_elements(idx)){
             theta[idx[j], n] = log(gamma[idx[j]]) + tmp + beta[idx[j]]*(t[n] - t_start[idx[j]]);
@@ -225,7 +227,7 @@ functions{
         // Get indexes of the new lineages
         array[n_parents] int idx;
         idx = which_equal(is_new_lineage, 0);
-        
+
         real tmp = log(sum(exp(theta[, n])));
         for (j in 1:num_elements(idx)){
           theta[idx[j], n] = log(alpha_GA[idx[j]]) + tmp;
@@ -289,13 +291,13 @@ transformed parameters {
   // Get alpha for each group
   vector[K] alpha=rep_vector(0, K);
   alpha=get_alpha(alpha_true, parents, K, G, t_start, t);
-   
+  
   // Get true alpha GA
   vector[K] alpha_GA=rep_vector(0, K);
   if(GA > 0){
     alpha_GA=get_alpha_GA(alpha_true_GA, parents, K, G, t_start, t);
   }
-  
+
   // Get true gamma
   vector[K] gamma=rep_vector(0, K);
   gamma=get_gamma(gamma_true, parents, K);
