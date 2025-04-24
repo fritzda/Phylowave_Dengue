@@ -139,7 +139,9 @@ plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
   data_m = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimin = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimax = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
-  tmp = lapply(1:data$N, function(x)DescTools::MultinomCI(data$Y[x,]))
+  tmp = lapply(1:data$N, function(x){ if(sum(data$Y[x,], na.rm = T) > 0){
+      return(DescTools::MultinomCI(data$Y[x,]))
+      }else{return(matrix(NA, nrow = length(data$Y[x,]), ncol = 3))}})
   for(i in 1:data$N){
     data_m[i,] = tmp[[i]][,1]
     data_cimin[i,] = tmp[[i]][,2]
@@ -404,7 +406,7 @@ estimate_rel_fitness_groups_with_branches = function(dataset_with_nodes, tree, m
                 'gamma_true' = abs(rnorm(n=length(groups)-data$G, mean=0, sd=0.001)))) ## Small starting frequencies
   }
   
-  fit <- model_compiled$sample(data = data, refresh = 50, #seed=24,
+  fit <- model_compiled$sample(data = data, refresh = 50, #seed=1,
                                chains = 3, parallel_chains = 3,
                                iter_warmup = 250, iter_sampling = 250,
                                max_treedepth = 12, adapt_delta = 0.97,
