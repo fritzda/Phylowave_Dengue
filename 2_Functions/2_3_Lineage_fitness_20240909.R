@@ -106,7 +106,11 @@ plot_fit_data = function(data, Chains, colour_lineage){
   data_m = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimin = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimax = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
-  tmp = lapply(1:data$N, function(x)DescTools::MultinomCI(data$Y[x,]))
+  tmp = lapply(1:data$N, function(x){ if(sum(data$Y[x,], na.rm = T) > 0){
+    return(DescTools::MultinomCI(data$Y[x,]))
+  }else{
+    warning(paste0("Time point ", x, " (t = ", data$t[x], ") does not have any data"), call. = F) 
+    return(matrix(NA, nrow = length(data$Y[x,]), ncol = 3))}})
   for(i in 1:data$N){
     data_m[i,] = tmp[[i]][,1]
     data_cimin[i,] = tmp[[i]][,2]
@@ -141,7 +145,9 @@ plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
   data_cimax = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   tmp = lapply(1:data$N, function(x){ if(sum(data$Y[x,], na.rm = T) > 0){
       return(DescTools::MultinomCI(data$Y[x,]))
-      }else{return(matrix(NA, nrow = length(data$Y[x,]), ncol = 3))}})
+      }else{
+        warning(paste0("Time point ", x, " (t_new = ", data$t_new[x], ") does not have any data"), call. = F) 
+        return(matrix(NA, nrow = length(data$Y[x,]), ncol = 3))}})
   for(i in 1:data$N){
     data_m[i,] = tmp[[i]][,1]
     data_cimin[i,] = tmp[[i]][,2]
@@ -172,7 +178,11 @@ plot_fit_data_per_group = function(data, Chains, colour_lineage){
   data_m = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimin = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimax = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
-  tmp = lapply(1:data$N, function(x)DescTools::MultinomCI(data$Y[x,]))
+  tmp = lapply(1:data$N, function(x){ if(sum(data$Y[x,], na.rm = T) > 0){
+    return(DescTools::MultinomCI(data$Y[x,]))
+  }else{
+    warning(paste0("Time point ", x, " (t = ", data$t[x], ") does not have any data"), call. = F) 
+    return(matrix(NA, nrow = length(data$Y[x,]), ncol = 3))}})  
   for(i in 1:data$N){
     data_m[i,] = tmp[[i]][,1]
     data_cimin[i,] = tmp[[i]][,2]
@@ -208,7 +218,11 @@ plot_fit_data_selected = function(data, Chains, colour_lineage, selected){
   data_m = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimin = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
   data_cimax = matrix(NA, nrow = nrow(data$Y), ncol = ncol(data$Y))
-  tmp = lapply(1:data$N, function(x)DescTools::MultinomCI(data$Y[x,]))
+  tmp = lapply(1:data$N, function(x){ if(sum(data$Y[x,], na.rm = T) > 0){
+    return(DescTools::MultinomCI(data$Y[x,]))
+  }else{
+    warning(paste0("Time point ", x, " (t_new = ", data$t_new[x], ") does not have any data"), call. = F) 
+    return(matrix(NA, nrow = length(data$Y[x,]), ncol = 3))}})
   for(i in 1:data$N){
     data_m[i,] = tmp[[i]][,1]
     data_cimin[i,] = tmp[[i]][,2]
