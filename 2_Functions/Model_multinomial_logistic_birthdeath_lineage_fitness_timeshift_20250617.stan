@@ -169,107 +169,112 @@ functions{
     return match_positions;
   }
   
-  matrix compute_theta(vector alpha, vector alpha_GA, vector beta, vector gamma, array[] int parents, array[,] int lin_presence, vector t_start, vector t, int K, int N){
-    matrix[K, N] theta = rep_matrix(-1e30, K, N);
-    int num_lin_init = num_below(t_start, t[1]);
-    array[num_lin_init] int which_lin_presence_init;
-    which_lin_presence_init = which_below(t_start, t[1]);
-    theta[which_lin_presence_init,1] = log(alpha[which_lin_presence_init]);//in the beginning, only ancestral lineages are present
-    for (i in which_lin_presence_init){
-      if (alpha[i] == -1){//specific case where a new lineage appears on the first time step
-        theta[i, 1] = log(gamma[i]) + theta[parents[i],1];
-      }
+matrix compute_theta(vector alpha, 
+                     vector alpha_GA, 
+                     vector beta_pre, 
+                     vector beta_post,
+                     vector gamma, 
+                     array[] int parents,
+                     array[,] int lin_presence, 
+                     vector t_start, 
+                     vector t, 
+                     int K, int N, 
+                     real t_breakpoint) {
+  matrix[K, N] theta = rep_matrix(-1e30, K, N);
+  int num_lin_init = num_below(t_start, t[1]);
+  array[num_lin_init] int which_lin_presence_init;
+  which_lin_presence_init = which_below(t_start, t[1]);
+  theta[which_lin_presence_init, 1] = log(alpha[which_lin_presence_init]); // in the beginning, only ancestral lineages are present
+  for (i in which_lin_presence_init) {
+    if (alpha[i] == -1) { // specific case where a new lineage appears on the first time step
+      theta[i, 1] = log(gamma[i]) + theta[parents[i], 1];
     }
-    if(num_lin_init > 1){
-      theta[,1] = theta[,1] - theta[K, 1]; // Make sure the reference is at 0
-    } // Else: reference is already at 0 
-    for (n in 2:N){  //for each year
-
-
-      // Get IDs of the lineages that were present at time t-1
-      int num_lin_t1 = num_below(t_start, t[n-1]);
-
-      array[num_lin_t1] int which_lin_presence_t1;
-      which_lin_presence_t1 = which_below(t_start, t[n-1]);
-
-      // Get IDs of the lineages that are present at time t
-      int num_lin_t = num_below(t_start, t[n]);
-      array[num_lin_t] int which_lin_presence_t;
-      which_lin_presence_t = which_below(t_start, t[n]);
-
-      array[K] int is_new_lineage;
-      is_new_lineage = rep_array(-10,K);
-      for (k in which_lin_presence_t){
-        if (k != K){
-          if (num_matches(which_lin_presence_t1, k) == 1){ //if the lineage was here before
-            theta[k,n] = theta[k,(n-1)]+beta[k]*(t[n]-t[n-1]);
-          }
-          else{ //if new lineage
-            is_new_lineage[k] = parents[k]; // Record the parent of each new lineage
-          }
-        }else{
-          theta[k,n] = theta[k,(n-1)]; // reference
-        }
-      }
-
-      for (i in 1:K){ // We deal with parent seperatelty, and make the new lienages appear
-
-        int n_parents = num_matches(is_new_lineage,  K-i+1); // Count number of parents that produce a new lieange at this time step
-        if(n_parents > 0){
-          // Get indexes of the new lineages
-          array[n_parents] int idx;
-          idx = which_equal(is_new_lineage, K-i+1);
-
-          if(n_parents > 1){
-            idx = idx[sort_indices_asc(t_start[idx])];
-          }
-
-          // Store the parent initial theta (at time t-1, or t_start if the parent also appeared wihtin this time step)
-          real tmp;
-          if(num_matches(which_lin_presence_t1, K-i+1) == 1){
-            if(K-i+1 != K){
-              tmp = theta[K-i+1,(n-1)]+beta[K-i+1]*(t_start[idx[1]]-t[n-1]); // if parent was there at time n-1
-            }else{
-              tmp = theta[K-i+1,(n-1)]; // parent is the reference group
-            }
-          }else{
-            tmp = theta[K-i+1,n] - beta[K-i+1]*(t_start[idx[1]]-t_start[K-i+1]);
-          }
-
-          // Rather complex loop to compute the thetas of the offspring, and update parent's theta
-          for (j in 1:num_elements(idx)){
-            theta[idx[j], n] = log(gamma[idx[j]]) + tmp + beta[idx[j]]*(t[n] - t_start[idx[j]]);
-            if(num_elements(idx) == j){
-              if(K-i+1 != K){
-                theta[K-i+1, n] = log(1-gamma[idx[j]]) + tmp + beta[K-i+1]*(t[n] - t_start[idx[j]]);
-              }else{
-                theta[K-i+1, n] = tmp; // parent is the reference group, by definition reference group's theta remains constant
-              }
-            }else{
-              if(K-i+1 != K){
-                tmp = log(1-gamma[idx[j]]) + tmp + beta[K-i+1]*(t_start[idx[j+1]] - t_start[idx[j]]);
-              }
-            }
-          }
-        }
-      }
-      // Potential case of 'new lienage but no parent'
-      int n_parents = num_matches(is_new_lineage,  0); // Count number of parents that produce a new lieange at this time step
-      if(n_parents > 0){
-        // Get indexes of the new lineages
-        array[n_parents] int idx;
-        idx = which_equal(is_new_lineage, 0);
-
-
-
-        real tmp = log(sum(exp(theta[, n])));
-        for (j in 1:num_elements(idx)){
-          theta[idx[j], n] = log(alpha_GA[idx[j]]) + tmp;
-        }
-      }
-    }
-    return theta;
   }
+  if (num_lin_init > 1) {
+    theta[, 1] = theta[, 1] - theta[K, 1]; // Make sure the reference is at 0
+  } // Else: reference is already at 0 
+
+  for (n in 2:N) {  // for each year
+
+    // Get IDs of the lineages that were present at time t-1
+    int num_lin_t1 = num_below(t_start, t[n - 1]);
+    array[num_lin_t1] int which_lin_presence_t1 = which_below(t_start, t[n - 1]);
+
+    // Get IDs of the lineages that are present at time t
+    int num_lin_t = num_below(t_start, t[n]);
+    array[num_lin_t] int which_lin_presence_t = which_below(t_start, t[n]);
+
+    array[K] int is_new_lineage = rep_array(-10, K);
+
+    for (k in which_lin_presence_t) {
+      if (k != K) {
+        if (num_matches(which_lin_presence_t1, k) == 1) { // if the lineage was here before
+          real beta_used = (t[n - 1] < t_breakpoint) ? beta_pre[k] : beta_post[k];
+          theta[k, n] = theta[k, n - 1] + beta_used * (t[n] - t[n - 1]);
+        } else { // if new lineage
+          is_new_lineage[k] = parents[k]; // Record the parent of each new lineage
+        }
+      } else {
+        theta[k, n] = theta[k, n - 1]; // reference
+      }
+    }
+
+    for (i in 1:K) { // We deal with parent separately, and make the new lineages appear
+
+      int n_parents = num_matches(is_new_lineage, K - i + 1); // Count number of parents that produce a new lineage at this time step
+      if (n_parents > 0) {
+        array[n_parents] int idx = which_equal(is_new_lineage, K - i + 1);
+
+        if (n_parents > 1) {
+          idx = idx[sort_indices_asc(t_start[idx])];
+        }
+
+        real tmp;
+        real beta_used_parent;
+        if (num_matches(which_lin_presence_t1, K - i + 1) == 1) {
+          if (K - i + 1 != K) {
+            beta_used_parent = (t[n - 1] < t_breakpoint) ? beta_pre[K - i + 1] : beta_post[K - i + 1];
+            tmp = theta[K - i + 1, n - 1] + beta_used_parent * (t_start[idx[1]] - t[n - 1]); // if parent was there at time n-1
+          } else {
+            tmp = theta[K - i + 1, n - 1]; // parent is the reference group
+          }
+        } else {
+          beta_used_parent = (t[n] < t_breakpoint) ? beta_pre[K - i + 1] : beta_post[K - i + 1];
+          tmp = theta[K - i + 1, n] - beta_used_parent * (t_start[idx[1]] - t_start[K - i + 1]);
+        }
+
+        // Rather complex loop to compute the thetas of the offspring, and update parent's theta
+        for (j in 1:num_elements(idx)) {
+          real beta_used_child = (t[n] < t_breakpoint) ? beta_pre[idx[j]] : beta_post[idx[j]];
+          theta[idx[j], n] = log(gamma[idx[j]]) + tmp + beta_used_child * (t[n] - t_start[idx[j]]);
+          if (j == num_elements(idx)) {
+            if (K - i + 1 != K) {
+              theta[K - i + 1, n] = log(1 - gamma[idx[j]]) + tmp + beta_used_parent * (t[n] - t_start[idx[j]]);
+            } else {
+              theta[K - i + 1, n] = tmp; // parent is the reference group, by definition reference group's theta remains constant
+            }
+          } else {
+            if (K - i + 1 != K) {
+              tmp = log(1 - gamma[idx[j]]) + tmp + beta_used_parent * (t_start[idx[j + 1]] - t_start[idx[j]]);
+            }
+          }
+        }
+      }
+    }
+
+    // Potential case of 'new lineage but no parent'
+    int n_parents = num_matches(is_new_lineage, 0); // Count number of parents that produce a new lineage at this time step
+    if (n_parents > 0) {
+      array[n_parents] int idx = which_equal(is_new_lineage, 0);
+      real tmp = log(sum(exp(theta[, n])));
+      for (j in 1:num_elements(idx)) {
+        theta[idx[j], n] = log(alpha_GA[idx[j]]) + tmp;
+      }
+    }
+  }
+
+  return theta;
+}
   
   // This funciton penalizes the model for ascribing probability mass to lineages with 0 counts 
   real multinomial_zeros_lpmf(array[] int y, vector p){
@@ -312,6 +317,8 @@ data{
   // To produce more detailed plots
   int <lower = 0> N_new;
   vector[N_new] t_new;
+  
+  real <lower = 0 > t_breakpoint; // breakpoint timeshift analysis
 }
 
 // Parameters: Includes beta (fitness), alpha (initial abundance), and gamma (split fractions)
@@ -322,7 +329,8 @@ parameters {
   vector<lower=0, upper = 1> [K-G-GA] gamma_true; // Starting proportion of each new group (not ancestral)
     
   // Fitness
-  vector[K-1] beta;        // Growth rate of each group 
+  vector[K-1] beta_pre;        // Growth rate of each group before the timeshift
+  vector[K-1] beta_post;       // Growth rate of each group after the timeshift
 
 
 }
@@ -348,7 +356,7 @@ transformed parameters {
   
   // Theta theta
   matrix[K, N] theta = rep_matrix(-1e30, K, N);
-  theta=compute_theta(alpha, alpha_GA, beta, gamma, parents, lin_presence, t_start, t, K, N);
+  theta = compute_theta(alpha, alpha_GA, beta_pre, beta_post, gamma, parents, lin_presence, t_start, t, K, N, t_breakpoint);
   
   // Theta[K, N] is the log-relative fitness of lineage k at time n, 
   // these values evolve whether the lineage is ancestral, derived, or new,
@@ -360,7 +368,8 @@ transformed parameters {
 }
 
 model {
-   beta ~ double_exponential(0, 1);
+   beta_pre ~ double_exponential(0, 1);
+   beta_post ~ double_exponential(0, 1);
    alpha_true_GA ~ normal(0, 0.05);
    // gamma_true ~ normal(0, 0.05); // Prior on starting frequencies of new groups: we expect small frequencies
    gamma_true ~ beta(1, 99); // Prior on starting frequencies of new groups: we expect small frequencies
@@ -392,7 +401,8 @@ generated quantities {
   
   // Compute frequencies at more time points (to have better plots)
   matrix[K, N_new] theta_new = rep_matrix(-1e30, K, N_new);
-  theta_new = compute_theta(alpha, alpha_GA, beta, gamma, parents, lin_presence, t_start, t_new, K, N_new);
+  theta_new = compute_theta(alpha, alpha_GA, beta_pre, beta_post, gamma, parents, lin_presence, t_start, t_new, K, N_new, t_breakpoint);
+
 }
 
 
