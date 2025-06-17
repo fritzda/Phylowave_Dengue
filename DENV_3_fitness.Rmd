@@ -2685,9 +2685,9 @@ entry:
 -   *tree*: timed tree
 -   *possible_snps*: the list of mutations that need to be considered
 -   *upstream_window*: for each group, how far upstream to consider
-    mutations
+    mutations. Not the whole branch to the root, but some amount of time
 -   *downstream_window*: for each group, consider nodes from the MRCA up
-    to this time
+    to this time. Sometimes there are heterogeneous groups that aquire mutations way later (not lineage causing, but still would be lineage defining)
 
 The codes to perform this analysis on the SARS-CoV-2 data is available
 in the file *2_4_Lineage_Defining_mutations.R*, in the folder
@@ -2700,6 +2700,10 @@ sars defaults
 ########################################################################################################################################
 ## For each SNP, look at defining mutation of each group
 ########################################################################################################################################
+
+## Play around with these
+##Upstream: 5 or 10 years?
+##Downstream 100 years? 
 
 ## Time window
 upstream_window = 2 # years (not going to the root)
@@ -2821,13 +2825,22 @@ save.image('Raw_scores_detection_DENV1to3_thai_01_25_2025.Rdata')
 
 ## Find significant snps
 
+When doing reconstruciton, can set some nodes in the branch that have high levels of support to NA. Since sig_threshold is based on the nodes, this is a limitaiton. Have to have non-NA on the branch tip 
+
+Noise in sig snp determination: 
+* phylogeny reconstruction: possible that some members don't have the snp 
+
+Lineage defining is:
+* present in 80% of groups and not present in parent nodes.
+* 
 
 ```{r Find significant snps}
 
 ########################################################################################################################################
 ## Find significant snps
 ########################################################################################################################################
-sig_threshold <- 0.75 #TODO Where to set this
+sig_threshold <- 0.75 #TODO Where to set this. This is percentage of all nodes in group that have mutation. Set at 80 because made sense to us.
+# Eval 50% - 100%? 
 scores_sig_all <- list()
 
 for (score_name in names(scores_all)) {
