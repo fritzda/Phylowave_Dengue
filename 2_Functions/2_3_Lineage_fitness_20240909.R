@@ -427,6 +427,7 @@ estimate_rel_fitness_groups_with_branches = function(dataset_with_nodes, tree, m
                 'gamma_true' = abs(rnorm(n=length(groups)-data$G, mean=0, sd=0.001)))) ## Small starting frequencies
   }
   
+<<<<<<< HEAD
   # Add t_breakpoint to data list only if needed
   if (!is.null(t_breakpoint)) {
     data$t_breakpoint <- t_breakpoint
@@ -434,6 +435,14 @@ estimate_rel_fitness_groups_with_branches = function(dataset_with_nodes, tree, m
     stop("You must supply `t_breakpoint` when using a model that requires it.")
   }
   
+=======
+  # Add t_breakpoint to data list only if model expects it
+  if (is.null(t_breakpoint)) {
+    stop("You must supply `t_breakpoint` to use the timeshift model.")
+  }
+  data$t_breakpoint <- t_breakpoint
+
+>>>>>>> 2589997967fa03e0b7cd46aea5104f8126bdd1ef
   fit <- model_compiled$sample(data = data, refresh = 50, #seed=1,
                                
                                chains = 3, parallel_chains = 3,
