@@ -2121,7 +2121,6 @@ res_fitness_3 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = d
                                                         t_breakpoint = NULL) #increased warmup and sampling from 250 and 500
 
 
-<<<<<<< HEAD
 
 
 # res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_2,
@@ -2150,34 +2149,7 @@ res_fitness_3 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = d
 #                                                         t_breakpoint = NULL)
 # end_time = Sys.time()
 # print(end_time - start_time)
-=======
-res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_2,
-                                                        tree = tree_DENV2,
-                                                        min_year = min_year, 
-                                                        window = wind, 
-                                                        model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
-                                                        t_breakpoint = NULL)
 
-res_fitness_1 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_1,
-                                                        tree = tree_DENV1,
-                                                        min_year = min_year, 
-                                                        window = wind, 
-                                                        model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
-                                                        t_breakpoint = NULL)
-
-
-res_fitness_4 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_4,
-                                                        tree = tree_DENV4,
-                                                        min_year = min_year, 
-                                                        window = wind, 
-                                                        model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
-                                                        t_breakpoint = NULL)
-end_time = Sys.time()
-print(end_time - start_time)
->>>>>>> 2589997967fa03e0b7cd46aea5104f8126bdd1ef
 
 
 
@@ -2189,11 +2161,9 @@ print(end_time - start_time)
 library(loo)
 
 breakpoints <- seq(1980, 2014, by = 0.5)
-<<<<<<< HEAD
+
 loo_scores_3 <- list()
-=======
-loo_scores <- list()
->>>>>>> 2589997967fa03e0b7cd46aea5104f8126bdd1ef
+
 
 for (bp in breakpoints) {
   fit_result <- estimate_rel_fitness_groups_with_branches(
@@ -2208,7 +2178,7 @@ for (bp in breakpoints) {
     t_breakpoint = bp
   )
   
-<<<<<<< HEAD
+  
   loo_scores_3[[as.character(bp)]] <- loo(fit_result$fit$draws("log_lik"))
 }
 
@@ -2252,13 +2222,6 @@ ggplot(loo_df_3, aes(x = breakpoint_num, y = elpd_diff)) +
     title = "Model Fit Across Breakpoints (Higher is Better). DENV3"
   ) +
   theme_minimal()
-=======
-  loo_scores[[as.character(bp)]] <- loo(fit_result$fit$draws("log_lik"))
-}
-
-# Compare and visualize
-loo::loo_compare(loo_scores)
->>>>>>> 2589997967fa03e0b7cd46aea5104f8126bdd1ef
 
 ```
 
