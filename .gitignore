@@ -37,6 +37,8 @@
 
 # RStudio files
 .Rproj.user/
+.Rproj
+.PhylowaveDengue.Rproj
 
 # produced vignettes
 vignettes/*.html
