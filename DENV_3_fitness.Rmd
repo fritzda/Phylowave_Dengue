@@ -337,6 +337,12 @@ library(vcfR)
 library(reticulate)
 library(tidyverse)
 library(foreach)
+library(extrafont)
+library(dsmisc)
+library(phangorn)
+library(glue)
+library(readr)
+library(svglite)
 
 # font_import()
 loadfonts(device="all") 
@@ -663,7 +669,7 @@ dataset_with_nodes_4 = data.frame('ID' = c(1:n_seq_4, n_seq_4+(1:(n_seq_4-1))),
 # 
 #                                 'serotype' = c(serotype_seqs, rep(NA, n_seq-1)))
 
-# Maybe add serotype once it works?
+
 ```
 
 
@@ -774,67 +780,56 @@ dataset_with_nodes_3 <- dataset_with_nodes_3 %>%
     TRUE ~ clade  # Keep existing assignments
   ))
 
+three_xx_tips_post <- dataset_with_nodes_3 %>%
+  filter(grepl("3XX", clade)) %>%
+  pull(name_seq)  # Extract sequence names with 3XX clade
+
+
 
 
 ```
 
 
 
+####Hunting for node clades to color:
+ie: inferring internal node clades based on descendant tips
 
-#### Plot tree & index below, with colors from clades
+```{r, eval = FALSE}
+dataset_with_nodes_3$clade_inferred <- dataset_with_nodes_3$clade
 
-First, generate the color key, based on the Nextstrain clade of each
-sequence.
 
-```{r, eval=T}
+
+for (node in (nroot_3):(length(tree_DENV3$tip.label) + tree_DENV3$Nnode)) {
+  
+  
+  
+  # Get descendant tip indices for this node
+  desc_tips <- unlist(Descendants(tree_DENV3, node, type = "tips"))
+  
+  # Get clades of those descendant tips
+  clade_vals <- dataset_with_nodes_3$clade[desc_tips]
+  
+  # If all non-NA clades are the same, assign it to this node
+  if (length(unique(clade_vals[!is.na(clade_vals)])) == 1) {
+    dataset_with_nodes_3$clade_inferred[node] <- unique(clade_vals[!is.na(clade_vals)])
+  } else {
+    dataset_with_nodes_3$clade_inferred[node] <- NA
+  }
+}
+
 ###DEVN3
 ## Color key for Nextstrain clades
-colors_clade_3 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_3$clade))), type="continuous")
+colors_clade_3 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_3$clade_inferred))), type="continuous")
 
 ## Color of each node, based on the key
-dataset_with_nodes_3$clade_color = as.factor(dataset_with_nodes_3$clade)
+dataset_with_nodes_3$clade_color = as.factor(dataset_with_nodes_3$clade_inferred)
 clade_labels_3 = levels(dataset_with_nodes_3$clade_color)
 levels(dataset_with_nodes_3$clade_color) = colors_clade_3
 dataset_with_nodes_3$clade_color = as.character(dataset_with_nodes_3$clade_color)
+dataset_with_nodes_3$clade_color[is.na(dataset_with_nodes_3$clade_color)] <- "grey"
 
-###DENV2
-## Color key for Nextstrain clades
-colors_clade_2 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_2$clade))), type="continuous")
+# Then Plotting
 
-## Color of each node, based on the key
-dataset_with_nodes_2$clade_color = as.factor(dataset_with_nodes_2$clade)
-clade_labels_2 = levels(dataset_with_nodes_2$clade_color)
-levels(dataset_with_nodes_2$clade_color) = colors_clade_2
-dataset_with_nodes_2$clade_color = as.character(dataset_with_nodes_2$clade_color)
-
-###DENV1
-## Color key for Nextstrain clades
-colors_clade_1 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_1$clade))), type="continuous")
-
-## Color of each node, based on the key
-dataset_with_nodes_1$clade_color = as.factor(dataset_with_nodes_1$clade)
-clade_labels_1 = levels(dataset_with_nodes_1$clade_color)
-levels(dataset_with_nodes_1$clade_color) = colors_clade_1
-dataset_with_nodes_1$clade_color = as.character(dataset_with_nodes_1$clade_color)
-
-
-###DENV4
-## Color key for Nextstrain clades
-colors_clade_4 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_4$clade))), type="continuous")
-
-## Color of each node, based on the key
-dataset_with_nodes_4$clade_color = as.factor(dataset_with_nodes_4$clade)
-clade_labels_4 = levels(dataset_with_nodes_4$clade_color)
-levels(dataset_with_nodes_4$clade_color) = colors_clade_4
-dataset_with_nodes_4$clade_color = as.character(dataset_with_nodes_4$clade_color)
-
-
-
-```
-
-Then plot the tree and index: DENV3
-
-```{r, eval=T}
 par(mfrow = c(2,1), oma = c(0,0,0,0), mar = c(4,4,0,0))
 
 #Denv3 data ranges from 1965 to 2014
@@ -874,15 +869,99 @@ legend('topright',
        cex = 0.5, bty = 'n', ncol = 5)
 ```
 
+```{r}
+# Dynamically inferring the clades
+for (i in 1:4) {
+  
+  tree <- get(paste0("tree_DENV", i))
+  dataset_with_nodes <- get(paste0("dataset_with_nodes_", i))
+  
+  # Total number of tips
+  ntips <- length(tree$tip.label)
+  
+  # Create inferred clade column
+  dataset_with_nodes$clade_inferred <- dataset_with_nodes$clade
+  
+  # Traverse internal nodes
+  for (node in (ntips + 1):(ntips + tree$Nnode)) {
+    
+    desc_tips <- unlist(Descendants(tree, node, type = "tips"))
+    clade_vals <- dataset_with_nodes$clade[desc_tips]
+    
+    if (length(unique(clade_vals[!is.na(clade_vals)])) == 1) {
+      dataset_with_nodes$clade_inferred[node] <- unique(clade_vals[!is.na(clade_vals)])
+    } else {
+      dataset_with_nodes$clade_inferred[node] <- NA
+    }
+  }
+  
+  # Save the updated dataset back into the environment
+  assign(paste0("dataset_with_nodes_", i), dataset_with_nodes)
+}
+```
+
+
+
+
+#### Plot tree & index below, with colors from clades
+
+First, generate the color key, based on the Nextstrain clade of each
+sequence.
+
+```{r, eval=T}
+###DEVN3
+## Color key for Nextstrain clades
+colors_clade_3 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_3$clade_inferred))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_3$clade_color = as.factor(dataset_with_nodes_3$clade_inferred)
+clade_labels_3 = levels(dataset_with_nodes_3$clade_color)
+levels(dataset_with_nodes_3$clade_color) = colors_clade_3
+dataset_with_nodes_3$clade_color = as.character(dataset_with_nodes_3$clade_color)
+dataset_with_nodes_3$clade_color[is.na(dataset_with_nodes_3$clade_color)] <- "grey"
+
+###DENV2
+## Color key for Nextstrain clades
+colors_clade_2 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_2$clade_inferred))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_2$clade_color = as.factor(dataset_with_nodes_2$clade_inferred)
+clade_labels_2 = levels(dataset_with_nodes_2$clade_color)
+levels(dataset_with_nodes_2$clade_color) = colors_clade_2
+dataset_with_nodes_2$clade_color = as.character(dataset_with_nodes_2$clade_color)
+dataset_with_nodes_2$clade_color[is.na(dataset_with_nodes_2$clade_color)] <- "grey"
+
+###DENV1
+## Color key for Nextstrain clades
+colors_clade_1 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_1$clade_inferred))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_1$clade_color = as.factor(dataset_with_nodes_1$clade_inferred)
+clade_labels_1 = levels(dataset_with_nodes_1$clade_color)
+levels(dataset_with_nodes_1$clade_color) = colors_clade_1
+dataset_with_nodes_1$clade_color = as.character(dataset_with_nodes_1$clade_color)
+dataset_with_nodes_1$clade_color[is.na(dataset_with_nodes_1$clade_color)] <- "grey"
+
+
+###DENV4
+## Color key for Nextstrain clades
+colors_clade_4 = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes_4$clade_inferred))), type="continuous")
+
+## Color of each node, based on the key
+dataset_with_nodes_4$clade_color = as.factor(dataset_with_nodes_4$clade_inferred)
+clade_labels_4 = levels(dataset_with_nodes_4$clade_color)
+levels(dataset_with_nodes_4$clade_color) = colors_clade_4
+dataset_with_nodes_4$clade_color = as.character(dataset_with_nodes_4$clade_color)
+dataset_with_nodes_4$clade_color[is.na(dataset_with_nodes_4$clade_color)] <- "grey"
+
+
+
+```
+
+
 Dynamically
 
 ```{r}
-
-
-library(dsmisc)
-
-
-
 
 for (i in 1:4) {
   
@@ -894,11 +973,11 @@ for (i in 1:4) {
   colors_clade <- get(paste0('colors_clade_', i))
   
   # Define global plot parameters
-  min_year <- 1975
+  min_year <- 1965 
   max_year <- 2015
   
   # Two-panel plot setup
-  png(filename = paste0("3_Output_Figures/","Classical_Clades_panel_plot_DENV_", i, time_stamp(), ".png"), width = 1800, height = 1800, res = 300)
+  png(filename = paste0("3_Output_Figures/","Classical_Clades_panel_plot_DENV_", i, ".png"), width = 1800, height = 1800, res = 300)
   par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
   
   ## Tree plot
@@ -942,9 +1021,12 @@ for (i in 1:4) {
 
 ```
 
-DON'T RUN: ggplot verison: needs work!
+
 
 ```{r, eval=FALSE}
+
+# DON'T RUN: ggplot verison: needs work!
+
 for (i in 1:4) {
   # Retrieve relevant variables
   tree <- get(paste0('tree_DENV', i))
@@ -1147,7 +1229,7 @@ parallelize_code = T
 number_cores = 8
 
 max_stepwise_deviance_explained_threshold = 0
-max_groups_found_3 = 7
+max_groups_found_3 = 6
 max_groups_found_2 = 3
 max_groups_found_1 = 8
 max_groups_found_4 = 2
@@ -1198,7 +1280,7 @@ potential_splits_2 = find.groups.by.index.dynamics(timed_tree = tree_DENV2,
                                                  metadata = dataset_with_nodes_2,
                                                  node_support = tree_DENV2$edge.length[match((n_seq_2+1):(2*n_seq_2-1),
                                                                                             tree_DENV2$edge[,2])],
-                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 threshold_node_support = threshold_node_support,
                                                  time_window_initial = time_window_initial,
                                                  time_window_increment = time_window_increment,
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
@@ -1227,7 +1309,7 @@ potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
                                                  metadata = dataset_with_nodes_1,
                                                  node_support = tree_DENV1$edge.length[match((n_seq_1+1):(2*n_seq_1-1),
                                                                                             tree_DENV2$edge[,2])],
-                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 threshold_node_support = threshold_node_support,
                                                  time_window_initial = time_window_initial,
                                                  time_window_increment = time_window_increment,
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
@@ -1256,7 +1338,7 @@ potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  metadata = dataset_with_nodes_4,
                                                  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
                                                                                             tree_DENV4$edge[,2])],
-                                                 threshold_node_support = 1/(29903*0.00081),
+                                                 threshold_node_support = threshold_node_support,
                                                  time_window_initial = time_window_initial,
                                                  time_window_increment = time_window_increment,
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
@@ -1281,18 +1363,16 @@ Instead, you may wish to load or write the results:
 ```{r, eval = T}
 
 st=format(Sys.time(), "%Y-%m-%d_%H%M")
-
-potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-03-18_1002.rds")
-potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-03-18_1002.rds")
-potential_splits_1 = readRDS("4_Output_Data/potential_splits_DENV1_timescale7_wind1_2025-03-18_1002.rds")
-potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-03-18_1002.rds")
+# 
+# potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-03-18_1002.rds")
+# potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-03-18_1002.rds")
+# potential_splits_1 = readRDS("4_Output_Data/potential_splits_DENV1_timescale7_wind1_2025-03-18_1002.rds")
+# potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-03-18_1002.rds")
 
 
 
 ##Write
 
-library(glue)
-library(readr)
 
 # file_name_3 <- glue("4_Output_Data/potential_splits_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
 # write_rds(potential_splits_3, file_name_3)
@@ -1314,6 +1394,7 @@ decide on this many groups, we initially ran the algorithm up to 30
 groups (though it converged at 14).
 
 ```{r linlog group plot}
+
 
 png('DENV_plots.png', width = 1800, height = 1800, res = 300)
 par(mfrow = c(4, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5), 
@@ -1482,7 +1563,7 @@ for (i in 1:4) {
   
   ## Plotting
   
-  svglite(filename = paste0("test", i, ".svg" ), width = 8, height = 10)
+  svglite(filename = paste0("3_Output_Figures/", "DENV", i, "New_Clades.svg" ), width = 8, height = 10)
   
   par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
   
@@ -1753,216 +1834,216 @@ plot_tree_world_Nextstrain_4
 Dynamically doing the above (Doesn't work due to aethetics inside the
 loop issues)
 
-```{r}
+```{r, eval = false}
 
-# 
-# # 
-# # for (i in 1:2) {
-# #   # Dynamically retrieve variables
-# #   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
-# #   colors_groups <- get(paste0('colors_groups_', i))
-# #   name_groups <- get(paste0('name_groups_', i))
-# #   tree <- get(paste0('tree_DENV', i))
-# #   times_seqs <- get(paste0('times_seqs_', i))
-# #   colors_clade <- get(paste0('colors_clade_', i))
-# #   clade_labels <- get(paste0('clade_labels_', i))
-# #   
-# #   # Create groupings
-# #   groupings <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
-# #   colnames(groupings) <- 'groups'
-# #   rownames(groupings) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
-# #   assign(paste0('groupings_', i), groupings)
-# #   
-# #   # Create cols
-# #   cols <- as.character(colors_groups)
-# #   names(cols) <- as.character(1:max(as.numeric(name_groups)))
-# #   assign(paste0('cols_', i), cols)
-# #   
-# #   # Create plot_tree_world_groups
-# #   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
-# #                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) + 
-# #     scale_color_manual(values = cols) + theme_tree2()
-# #   
-# #   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groupings, offset = 0.1, width = 0.10, 
-# #                                      colnames = FALSE, legend_title = "Group", color = NA) +
-# #     scale_fill_manual(values = cols) +
-# #     scale_y_continuous(expand = c(0, 0.3)) +
-# #     theme(legend.position = 'none')
-# #   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
-# #   
-# #   # Create Nextstrain
-# #   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
-# #   colnames(Nextstrain) <- 'groups'
-# #   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
-# #   assign(paste0('Nextstrain_', i), Nextstrain)
-# #   
-# #   # Create cols_NextStrain
-# #   cols_NextStrain <- as.character(colors_clade)
-# #   names(cols_NextStrain) <- clade_labels
-# #   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
-# #   
-# #   # Create plot_tree_world_Nextstrain
-# #   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
-# #                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) + 
-# #     scale_color_manual(values = cols_NextStrain) +
-# #     theme_tree2(legend = 'none')
-# #   
-# #   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10, 
-# #                                          colnames = FALSE, legend_title = "Group", color = NA) +
-# #     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
-# #     scale_x_reverse() + 
-# #     scale_y_continuous(expand = c(0, 0.3)) +
-# #     theme(legend.position = 'none')
-# #   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
-# #   
-# #   # Print plots
-# #   print(plot_tree_world_groups)
-# #   print(plot_tree_world_Nextstrain)
-# # }
-# # 
-# # plot_tree_world_groups_1
-# # plot_tree_world_Nextstrain_1
-# # 
-# 
-# # for (i in 1:4) {
-# #   # Retrieve relevant variables
-# #   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
-# #   tree <- get(paste0('tree_DENV', i))
-# #   times_seqs <- get(paste0('times_seqs_', i))
-# #   colors_clade <- get(paste0('colors_clade_', i))
-# #   clade_labels <- get(paste0('clade_labels_', i))
-# #   name_groups <- get(paste0('name_groups_', i))
-# #   colors_groups <- get(paste0('colors_groups_', i)) 
-# #   
-# #   ## Tree with index-defined groups
-# #   groupings <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
-# #   colnames(groupings) <- 'groups'
-# #   rownames(groupings) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
-# #   
-# #   # Assign group colors dynamically
-# #   cols <- as.character(colors_groups)
-# #   names(cols) <- as.character(1:max(as.numeric(name_groups)))
-# #   
-# #   # Store groupings and cols dynamically
-# #   assign(paste0('groupings_', i), groupings)
-# #   assign(paste0('cols_', i), cols)
-# #   
-# #   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
-# #                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) + 
-# #     scale_color_manual(values = cols) +
-# #     theme_tree2()
-# #   
-# #   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groupings, offset = 0.1, width = 0.10, 
-# #                                      colnames = FALSE, legend_title = "Group", color = NA) +
-# #     scale_fill_manual(values = cols) +
-# #     scale_y_continuous(expand = c(0, 0.3)) +
-# #     theme(legend.position = 'none')
-# #   
-# #   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
-# #   
-# #   ## Tree with NextStrain clades
-# #   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
-# #   colnames(Nextstrain) <- 'groups'
-# #   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
-# #   
-# #   # Assign clade colors dynamically
-# #   cols_NextStrain <- as.character(colors_clade)
-# #   names(cols_NextStrain) <- clade_labels
-# #   
-# #   # Store NextStrain and cols_NextStrain dynamically
-# #   assign(paste0('Nextstrain_', i), Nextstrain)
-# #   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
-# #   
-# #   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
-# #                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) + 
-# #     scale_color_manual(values = cols_NextStrain) +
-# #     theme_tree2(legend = 'none')
-# #   
-# #   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10, 
-# #                                          colnames = FALSE, legend_title = "Group", color = NA) +
-# #     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
-# #     scale_x_reverse() + 
-# #     scale_y_continuous(expand = c(0, 0.3)) +
-# #     theme(legend.position = 'none')
-# #   
-# #   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
-# # }
-# # 
-# 
-# 
-# # for (i in 1:4) {
-# #   # Retrieve relevant variables
-# #   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
-# #   tree <- get(paste0('tree_DENV', i))
-# #   times_seqs <- get(paste0('times_seqs_', i))
-# #   colors_clade <- get(paste0('colors_clade_', i))
-# #   clade_labels <- get(paste0('clade_labels_', i))
-# #   name_groups <- get(paste0('name_groups_', i))
-# #   colors_groups <- get(paste0('colors_groups_', i)) 
-# # 
-# #   ## Tree with index-defined groups
-# #   groups <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
-# #   colnames(groups) <- 'groups'
-# #   rownames(groups) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
-# #   cols <- as.character(colors_groups)
-# #   names(cols) <- as.character(1:max(as.numeric(name_groups)))
-# #   
-# #   assign(paste0('groups_', i), groups)
-# #   assign(paste0('cols_', i), cols)
-# #   
-# #   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
-# #                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) + 
-# #     scale_color_manual(values = cols) +
-# #     theme_tree2()
-# #   
-# #   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groups, offset = 0.1, width = 0.10, 
-# #                                      colnames = FALSE, legend_title = "Group", color = NA) +
-# #     scale_fill_manual(values = cols) +
-# #     scale_y_continuous(expand = c(0, 0.3)) +
-# #     theme(legend.position = 'none')
-# #   
-# #   # Dynamically store the plot
-# #   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
-# #   
-# #   ## Tree with NextStrain clades
-# #   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
-# #   colnames(Nextstrain) <- 'groups'
-# #   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
-# #   cols_NextStrain <- as.character(colors_clade)
-# #   names(cols_NextStrain) <- clade_labels
-# #   
-# #   assign(paste0('Nextstrain_', i), Nextstrain)
-# #   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
-# #   
-# #   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
-# #                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) + 
-# #     scale_color_manual(values = cols_NextStrain) +
-# #     theme_tree2(legend = 'none')
-# #   
-# #   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10, 
-# #                                          colnames = FALSE, legend_title = "Group", color = NA) +
-# #     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
-# #     scale_x_reverse() + 
-# #     scale_y_continuous(expand = c(0, 0.3)) +
-# #     theme(legend.position = 'none')
-# #   
-# #   # Dynamically store the plot
-# #   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
-# # }
-# nrow(groupings_1)
-# nrow(Nextstrain_1)
-# length(cols_3)
-# length(cols_NextStrain_3)
-# 
+
+#
+# for (i in 1:2) {
+#   # Dynamically retrieve variables
+#   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+#   colors_groups <- get(paste0('colors_groups_', i))
+#   name_groups <- get(paste0('name_groups_', i))
+#   tree <- get(paste0('tree_DENV', i))
+#   times_seqs <- get(paste0('times_seqs_', i))
+#   colors_clade <- get(paste0('colors_clade_', i))
+#   clade_labels <- get(paste0('clade_labels_', i))
+#
+#   # Create groupings
+#   groupings <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+#   colnames(groupings) <- 'groups'
+#   rownames(groupings) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+#   assign(paste0('groupings_', i), groupings)
+#
+#   # Create cols
+#   cols <- as.character(colors_groups)
+#   names(cols) <- as.character(1:max(as.numeric(name_groups)))
+#   assign(paste0('cols_', i), cols)
+#
+#   # Create plot_tree_world_groups
+#   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+#                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) +
+#     scale_color_manual(values = cols) + theme_tree2()
+#
+#   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groupings, offset = 0.1, width = 0.10,
+#                                      colnames = FALSE, legend_title = "Group", color = NA) +
+#     scale_fill_manual(values = cols) +
+#     scale_y_continuous(expand = c(0, 0.3)) +
+#     theme(legend.position = 'none')
+#   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
+#
+#   # Create Nextstrain
+#   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+#   colnames(Nextstrain) <- 'groups'
+#   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+#   assign(paste0('Nextstrain_', i), Nextstrain)
+#
+#   # Create cols_NextStrain
+#   cols_NextStrain <- as.character(colors_clade)
+#   names(cols_NextStrain) <- clade_labels
+#   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
+#
+#   # Create plot_tree_world_Nextstrain
+#   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+#                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) +
+#     scale_color_manual(values = cols_NextStrain) +
+#     theme_tree2(legend = 'none')
+#
+#   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10,
+#                                          colnames = FALSE, legend_title = "Group", color = NA) +
+#     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
+#     scale_x_reverse() +
+#     scale_y_continuous(expand = c(0, 0.3)) +
+#     theme(legend.position = 'none')
+#   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
+#
+#   # Print plots
+#   print(plot_tree_world_groups)
+#   print(plot_tree_world_Nextstrain)
+# }
+#
 # plot_tree_world_groups_1
 # plot_tree_world_Nextstrain_1
+#
+
+# for (i in 1:4) {
+#   # Retrieve relevant variables
+#   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+#   tree <- get(paste0('tree_DENV', i))
+#   times_seqs <- get(paste0('times_seqs_', i))
+#   colors_clade <- get(paste0('colors_clade_', i))
+#   clade_labels <- get(paste0('clade_labels_', i))
+#   name_groups <- get(paste0('name_groups_', i))
+#   colors_groups <- get(paste0('colors_groups_', i))
+#
+#   ## Tree with index-defined groups
+#   groupings <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+#   colnames(groupings) <- 'groups'
+#   rownames(groupings) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+#
+#   # Assign group colors dynamically
+#   cols <- as.character(colors_groups)
+#   names(cols) <- as.character(1:max(as.numeric(name_groups)))
+#
+#   # Store groupings and cols dynamically
+#   assign(paste0('groupings_', i), groupings)
+#   assign(paste0('cols_', i), cols)
+#
+#   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+#                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) +
+#     scale_color_manual(values = cols) +
+#     theme_tree2()
+#
+#   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groupings, offset = 0.1, width = 0.10,
+#                                      colnames = FALSE, legend_title = "Group", color = NA) +
+#     scale_fill_manual(values = cols) +
+#     scale_y_continuous(expand = c(0, 0.3)) +
+#     theme(legend.position = 'none')
+#
+#   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
+#
+#   ## Tree with NextStrain clades
+#   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+#   colnames(Nextstrain) <- 'groups'
+#   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+#
+#   # Assign clade colors dynamically
+#   cols_NextStrain <- as.character(colors_clade)
+#   names(cols_NextStrain) <- clade_labels
+#
+#   # Store NextStrain and cols_NextStrain dynamically
+#   assign(paste0('Nextstrain_', i), Nextstrain)
+#   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
+#
+#   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+#                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) +
+#     scale_color_manual(values = cols_NextStrain) +
+#     theme_tree2(legend = 'none')
+#
+#   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10,
+#                                          colnames = FALSE, legend_title = "Group", color = NA) +
+#     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
+#     scale_x_reverse() +
+#     scale_y_continuous(expand = c(0, 0.3)) +
+#     theme(legend.position = 'none')
+#
+#   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
+# }
+#
+
+
+# for (i in 1:4) {
+#   # Retrieve relevant variables
+#   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+#   tree <- get(paste0('tree_DENV', i))
+#   times_seqs <- get(paste0('times_seqs_', i))
+#   colors_clade <- get(paste0('colors_clade_', i))
+#   clade_labels <- get(paste0('clade_labels_', i))
+#   name_groups <- get(paste0('name_groups_', i))
+#   colors_groups <- get(paste0('colors_groups_', i))
+#
+#   ## Tree with index-defined groups
+#   groups <- matrix(dataset_with_nodes$groups[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+#   colnames(groups) <- 'groups'
+#   rownames(groups) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+#   cols <- as.character(colors_groups)
+#   names(cols) <- as.character(1:max(as.numeric(name_groups)))
+#
+#   assign(paste0('groups_', i), groups)
+#   assign(paste0('cols_', i), cols)
+#
+#   plot_tree_world_groups <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+#                                    aes(color = as.character(dataset_with_nodes$groups), label = label)) +
+#     scale_color_manual(values = cols) +
+#     theme_tree2()
+#
+#   plot_tree_world_groups <- gheatmap(plot_tree_world_groups, groups, offset = 0.1, width = 0.10,
+#                                      colnames = FALSE, legend_title = "Group", color = NA) +
+#     scale_fill_manual(values = cols) +
+#     scale_y_continuous(expand = c(0, 0.3)) +
+#     theme(legend.position = 'none')
+#
+#   # Dynamically store the plot
+#   assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
+#
+#   ## Tree with NextStrain clades
+#   Nextstrain <- matrix(dataset_with_nodes$clade[which(dataset_with_nodes$is.node == 'no')], ncol = 1)
+#   colnames(Nextstrain) <- 'groups'
+#   rownames(Nextstrain) <- dataset_with_nodes$name_seq[which(dataset_with_nodes$is.node == 'no')]
+#   cols_NextStrain <- as.character(colors_clade)
+#   names(cols_NextStrain) <- clade_labels
+#
+#   assign(paste0('Nextstrain_', i), Nextstrain)
+#   assign(paste0('cols_NextStrain_', i), cols_NextStrain)
+#
+#   plot_tree_world_Nextstrain <- ggtree(tree, mrsd = lubridate::date_decimal(max(times_seqs)), size = 0.10,
+#                                        aes(color = as.character(dataset_with_nodes$clade), label = label)) +
+#     scale_color_manual(values = cols_NextStrain) +
+#     theme_tree2(legend = 'none')
+#
+#   plot_tree_world_Nextstrain <- gheatmap(plot_tree_world_Nextstrain, Nextstrain, offset = 0.1, width = 0.10,
+#                                          colnames = FALSE, legend_title = "Group", color = NA) +
+#     scale_fill_manual(values = cols_NextStrain, na.value = 'white') +
+#     scale_x_reverse() +
+#     scale_y_continuous(expand = c(0, 0.3)) +
+#     theme(legend.position = 'none')
+#
+#   # Dynamically store the plot
+#   assign(paste0('plot_tree_world_Nextstrain_', i), plot_tree_world_Nextstrain)
+# }
+nrow(groupings_1)
+nrow(Nextstrain_1)
+length(cols_3)
+length(cols_NextStrain_3)
+
+plot_tree_world_groups_1
+plot_tree_world_Nextstrain_1
 
 
 ```
 
 Plot the generated trees:
 
-```{r, eval = T}
+```{r, eval = False}
 plot_grid(plot_tree_world_groups_i, plot_tree_world_Nextstrain_i,
           rel_widths = c(1, 1), labels = c('Automatic clades DENV_i', 'NextStrain clades_i'), label_size = 10, label_x = c(0.1, 0.25), ncol = 2)
 
@@ -1973,6 +2054,7 @@ ggplotly(subplot(plot_tree_world_groups_i, plot_tree_world_Nextstrain_i,
 Dynamcially
 
 ```{r}
+
 for (i in 1:4) {
   # Dynamically retrieve the group and NextStrain plots
   plot_tree_world_groups <- get(paste0('plot_tree_world_groups_', i))
@@ -1990,7 +2072,7 @@ for (i in 1:4) {
   )
   
   # Save the static combined plot
-  ggsave(filename = paste0("3_Output_Figures/","combined_plot_DENV_", i, "_" , st, ".png"), plot = combined_plot, width = 12, height = 6, dpi = 300)
+  ggsave(filename = paste0("3_Output_Figures/","DENV_", i, "_", "Classical_vs_Phylowave_Clades_combined_plot_", st, ".png"), plot = combined_plot, width = 12, height = 6, dpi = 300)
   
   # Side-by-side interactive plot using ggplotly and subplot
   interactive_plot <- ggplotly(
@@ -1998,7 +2080,7 @@ for (i in 1:4) {
   )
   
   # Save the interactive plot as an HTML file
-  htmlwidgets::saveWidget(interactive_plot, file = paste0("3_Output_Figures/","interactive_plot_DENV_", i, st,".html"))
+  htmlwidgets::saveWidget(interactive_plot, file = paste0("3_Output_Figures/","DENV_", i, "Classical_vs_Phylowave_Clades_interactive_plot_", st,".html"))
 }
 
 ```
@@ -2028,7 +2110,8 @@ res_fitness_3 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = d
                                                         min_year = min_year, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1) #increased warmup and sampling from 250 and 500
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
+                                                        t_breakpoint = NULL) #increased warmup and sampling from 250 and 500
 
 
 res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_2,
@@ -2036,14 +2119,16 @@ res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = d
                                                         min_year = min_year, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
+                                                        t_breakpoint = NULL)
 
 res_fitness_1 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_1,
                                                         tree = tree_DENV1,
                                                         min_year = min_year, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
+                                                        t_breakpoint = NULL)
 
 
 res_fitness_4 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_4,
@@ -2051,9 +2136,42 @@ res_fitness_4 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = d
                                                         min_year = min_year, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
+                                                        t_breakpoint = NULL)
 end_time = Sys.time()
 print(end_time - start_time)
+
+
+
+
+
+
+# Breakpoint anlyasis
+
+library(loo)
+
+breakpoints <- seq(1980, 2014, by = 0.5)
+loo_scores <- list()
+
+for (bp in breakpoints) {
+  fit_result <- estimate_rel_fitness_groups_with_branches(
+    dataset_with_nodes = dataset_with_nodes_3,
+    tree = tree_DENV3,
+    min_year = min_year,
+    window = wind,
+    model_compiled = model_timeshift,
+    iter_warmup = 1000,
+    iter_sampling = 2000,
+    seed = 1,
+    t_breakpoint = bp
+  )
+  
+  loo_scores[[as.character(bp)]] <- loo(fit_result$fit$draws("log_lik"))
+}
+
+# Compare and visualize
+loo::loo_compare(loo_scores)
+
 ```
 
 You might encounter a warning saying that '*alpha_true_GA*' has a

@@ -311,7 +311,7 @@ softmax <- function(x) {exp(x) / sum(exp(x))}
 
 ## Main fit function
 estimate_rel_fitness_groups_with_branches = function(dataset_with_nodes, tree, min_year = 1950, window = NULL, N = NULL, 
-                                                     model_compiled, iter_warmup = 250, iter_sampling = 500, refresh = 50, seed = 1){
+                                                     model_compiled, iter_warmup = 250, iter_sampling = 500, refresh = 50, seed = 1, t_breakpoint = NULL){
   ## Retrieve branches from tree
   branches = tree$edge
   
@@ -427,6 +427,11 @@ estimate_rel_fitness_groups_with_branches = function(dataset_with_nodes, tree, m
                 'gamma_true' = abs(rnorm(n=length(groups)-data$G, mean=0, sd=0.001)))) ## Small starting frequencies
   }
   
+  # Add t_breakpoint to data list only if model expects it
+  if (is.null(t_breakpoint)) {
+    stop("You must supply `t_breakpoint` to use the timeshift model.")
+  }
+  data$t_breakpoint <- t_breakpoint
 
   fit <- model_compiled$sample(data = data, refresh = 50, #seed=1,
                                
