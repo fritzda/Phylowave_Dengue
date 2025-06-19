@@ -2105,124 +2105,104 @@ start_time = Sys.time()
 
 ## If you get an error about path mapping to a previous user 
 ##make sure to go into the model/scripts folder and delete the old unix model before making this one or run: cmdstanr::rebuild_cmdstan()
-model_compiled <- cmdstan_model(stan_file = '2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_20231220.stan')
+# Define a list of serotypes and associated variables
+serotypes <- list(
+  DENV1 = list(dataset = dataset_with_nodes_1, tree = tree_DENV1),
+  DENV2 = list(dataset = dataset_with_nodes_2, tree = tree_DENV2),
+  DENV3 = list(dataset = dataset_with_nodes_3, tree = tree_DENV3),
+  DENV4 = list(dataset = dataset_with_nodes_4, tree = tree_DENV4)
+)
 
-model_timeshift <- cmdstan_model(stan_file = '2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_timeshift_20250617.stan')
-## Run model on the groups
-
-
-
-res_fitness_3 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_3,
-                                                        tree = tree_DENV3,
-                                                        min_year = min_year, 
-                                                        window = wind, 
-                                                        model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
-                                                        t_breakpoint = NULL) #increased warmup and sampling from 250 and 500
-
-
-
-
-# res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_2,
-#                                                         tree = tree_DENV2,
-#                                                         min_year = min_year, 
-#                                                         window = wind, 
-#                                                         model_compiled = model_compiled,
-#                                                         iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
-#                                                         t_breakpoint = NULL)
-# 
-# res_fitness_1 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_1,
-#                                                         tree = tree_DENV1,
-#                                                         min_year = min_year, 
-#                                                         window = wind, 
-#                                                         model_compiled = model_compiled,
-#                                                         iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
-#                                                         t_breakpoint = NULL)
-# 
-# 
-# res_fitness_4 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_4,
-#                                                         tree = tree_DENV4,
-#                                                         min_year = min_year, 
-#                                                         window = wind, 
-#                                                         model_compiled = model_compiled,
-#                                                         iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1,
-#                                                         t_breakpoint = NULL)
-# end_time = Sys.time()
-# print(end_time - start_time)
-
-
-
-
-
-
-
-# Breakpoint anlyasis
-
-library(loo)
+# Compile both models
+model_static <- cmdstan_model("2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_20231220.stan")
+model_timeshift <- cmdstan_model("2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_timeshift_20250617.stan")
 
 breakpoints <- seq(1980, 2014, by = 0.5)
 
-loo_scores_3 <- list()
+# Loop over each serotype
+results <- list()
 
-
-for (bp in breakpoints) {
-  fit_result <- estimate_rel_fitness_groups_with_branches(
-    dataset_with_nodes = dataset_with_nodes_3,
-    tree = tree_DENV3,
+for (serotype in names(serotypes)) {
+  cat("Running for", serotype, "\n")
+  
+  dataset <- serotypes[[serotype]]$dataset
+  tree <- serotypes[[serotype]]$tree
+  
+  # No-breakpoint model
+  res_no_bp <- estimate_rel_fitness_groups_with_branches(
+    dataset_with_nodes = dataset,
+    tree = tree,
     min_year = min_year,
     window = wind,
-    model_compiled = model_timeshift,
+    model_compiled = model_static,
     iter_warmup = 1000,
     iter_sampling = 2000,
     seed = 1,
-    t_breakpoint = bp
+    t_breakpoint = NULL
   )
   
+  loo_scores <- list()
+  loo_scores[["no_breakpoint"]] <- loo(res_no_bp$fit$draws("log_lik"))
   
-  loo_scores_3[[as.character(bp)]] <- loo(fit_result$fit$draws("log_lik"))
+  # Breakpoint models
+  for (bp in breakpoints) {
+    cat("  └── Fitting breakpoint model at year:", bp, "\n")
+    fit_result <- estimate_rel_fitness_groups_with_branches(
+      dataset_with_nodes = dataset,
+      tree = tree,
+      min_year = min_year,
+      window = wind,
+      model_compiled = model_timeshift,
+      iter_warmup = 1000,
+      iter_sampling = 2000,
+      seed = 1,
+      t_breakpoint = bp
+    )
+    loo_scores[[as.character(bp)]] <- loo(fit_result$fit$draws("log_lik"))
+  }
+  
+  # Compare models
+  loo_comparison <- loo::loo_compare(loo_scores)
+  loo_df <- as.data.frame(loo_comparison)
+  loo_df$breakpoint <- rownames(loo_df)
+  loo_df <- loo_df %>%
+    mutate(
+      breakpoint_num = as.numeric(breakpoint),
+      breakpoint_num = ifelse(breakpoint == "no_breakpoint", 2030, breakpoint_num)
+    )
+  
+  best_year <- loo_df %>%
+    filter(elpd_diff == max(elpd_diff, na.rm = TRUE)) %>%
+    pull(breakpoint_num)
+  
+  results[[serotype]] <- list(loo_df = loo_df, best_year = best_year)
+  
 }
 
-# Compare and visualize
 
-loo_no_breakpoint_3 <- loo(res_fitness_3$fit$draws("log_lik"))
-loo_scores_3[["no_breakpoint"]] <- loo_no_breakpoint_3
-
-loo_comparison_3 <- loo::loo_compare(loo_scores)
-print(loo_comparison_3)
-
-# Convert loo_comparison to a data frame
-loo_df_3 <- as.data.frame(loo_comparison_3)
-loo_df_3$breakpoint <- rownames(loo_df_3)
-
-# Assign numeric value for breakpoints, and manually set 2050 for "no_breakpoint"
-loo_df_3 <- loo_df_3 %>%
-  mutate(
-    breakpoint_num = as.numeric(breakpoint),
-    breakpoint_num = ifelse(breakpoint == "no_breakpoint", 2030, breakpoint_num)
-  )
-
-# Find the breakpoint year of the best model
-best_model_year_3 <- loo_df_3 %>%
-  filter(elpd_diff == max(elpd_diff, na.rm = TRUE)) %>%
-  pull(breakpoint_num)
-
-# Plot
-ggplot(loo_df_3, aes(x = breakpoint_num, y = elpd_diff)) +
-  geom_point() +
-  geom_vline(xintercept = best_model_year_3, linetype = "dashed", color = "blue") +
-  annotate("text", x = best_model_year_3, y = max(loo_df$elpd_diff, na.rm = TRUE), 
-           label = paste("Best model:", best_model_year_3), hjust = -0.1, vjust = -1, color = "blue") +
-  geom_errorbar(aes(ymin = elpd_diff - se_diff, ymax = elpd_diff + se_diff), width = 0.1) +
-  geom_vline(xintercept = 2030, linetype = "dotted", color = "red") +
-  annotate("text", x = 2030, y = max(loo_df_3$elpd_diff, na.rm = TRUE), label = "No Breakpoint", hjust = 1.1, vjust = 1, color = "red") +
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  labs(
-    x = "Breakpoint Year",
-    y = "ELPD Difference vs. Best Model",
-    title = "Model Fit Across Breakpoints (Higher is Better). DENV3"
-  ) +
-  theme_minimal()
-
+for (serotype in names(results)) {
+  loo_df <- results[[serotype]]$loo_df
+  best_year <- results[[serotype]]$best_year
+  
+  p <- ggplot(loo_df, aes(x = breakpoint_num, y = elpd_diff)) +
+    geom_point() +
+    geom_errorbar(aes(ymin = elpd_diff - se_diff, ymax = elpd_diff + se_diff), width = 0.1) +
+    geom_vline(xintercept = best_year, linetype = "dashed", color = "blue") +
+    geom_vline(xintercept = 2030, linetype = "dotted", color = "red") +
+    annotate("text", x = best_year, y = max(loo_df$elpd_diff, na.rm = TRUE),
+             label = paste("Best model:", best_year), hjust = -0.1, vjust = -1, color = "blue") +
+    annotate("text", x = 2030, y = max(loo_df$elpd_diff, na.rm = TRUE),
+             label = "No Breakpoint", hjust = 1.1, vjust = 1, color = "red") +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(
+      x = "Breakpoint Year",
+      y = "ELPD Difference vs. Best Model",
+      title = paste("Model Fit Across Breakpoints -", serotype)
+    ) +
+    theme_minimal()
+  
+  print(p)  # Show plot for each serotype
+}
 ```
 
 You might encounter a warning saying that '*alpha_true_GA*' has a
