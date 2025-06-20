@@ -311,7 +311,10 @@ softmax <- function(x) {exp(x) / sum(exp(x))}
 
 ## Main fit function
 estimate_rel_fitness_groups_with_branches = function(dataset_with_nodes, tree, min_year = 1950, window = NULL, N = NULL, 
-                                                     model_compiled, iter_warmup = 250, iter_sampling = 500, refresh = 50, seed = 1, t_breakpoint = NULL){
+                                                     model_compiled, iter_warmup = 250, iter_sampling = 500, refresh = 50, seed = 1, 
+                                                     t_breakpoint = NULL,
+                                                     max_treedepth = 16,
+                                                     adapt_delta = 0.8){
   ## Retrieve branches from tree
   branches = tree$edge
   
@@ -436,12 +439,19 @@ estimate_rel_fitness_groups_with_branches = function(dataset_with_nodes, tree, m
   }
   
 
-  fit <- model_compiled$sample(data = data, refresh = 50, #seed=1,
-                               
-                               chains = 3, parallel_chains = 3,
-                               iter_warmup = 250, iter_sampling = 250,
-                               max_treedepth = 12, adapt_delta = 0.97,
-                               init = list(initial_values(), initial_values(), initial_values()))
+  fit <- model_compiled$sample(
+    data = data,
+    refresh = refresh,
+    seed = seed,
+    chains = 3,
+    parallel_chains = 3,
+    iter_warmup = iter_warmup, #set og to 250
+    iter_sampling = iter_sampling, #set OG to 250
+    max_treedepth = max_treedepth, ## set OG to 12
+    adapt_delta = adapt_delta, ## set OG to 0.97
+    init = list(initial_values(), initial_values(), initial_values())
+  )
+  
   
   ## Diagnostic
   fit$cmdstan_diagnose()#check this
