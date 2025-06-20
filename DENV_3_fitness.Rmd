@@ -1364,10 +1364,10 @@ Instead, you may wish to load or write the results:
 
 st=format(Sys.time(), "%Y-%m-%d_%H%M")
 # 
-potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-03-18_1002.rds")
-potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-03-18_1002.rds")
-potential_splits_1 = readRDS("4_Output_Data/potential_splits_DENV1_timescale7_wind1_2025-03-18_1002.rds")
-potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-03-18_1002.rds")
+# potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-03-18_1002.rds")
+# potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-03-18_1002.rds")
+# potential_splits_1 = readRDS("4_Output_Data/potential_splits_DENV1_timescale7_wind1_2025-03-18_1002.rds")
+# potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-03-18_1002.rds")
 
 
 ##Write
@@ -2143,126 +2143,15 @@ takes approximately \<5 min on 3 cores):
 
 ```{r, eval = F, results = 'hide', warning=FALSE, message=FALSE}
 
-library(loo)
-
-source(file = '2_Functions/2_1_Index_computation_20240909.R')
-source(file = '2_Functions/2_2_Lineage_detection_20240909.R')
-source(file = '2_Functions/2_3_Lineage_fitness_20240909.R')
-
-options(mc.cores = 14) #Set to 14 cores
-start_time = Sys.time()
-## Load and compile stan code (this can take a few minutes)
-
-## If you get an error about path mapping to a previous user 
-##make sure to go into the model/scripts folder and delete the old unix model before making this one or run: cmdstanr::rebuild_cmdstan()
-# Define a list of serotypes and associated variables
-serotypes <- list(
-  DENV1 = list(dataset = dataset_with_nodes_1, tree = tree_DENV1),
-  DENV2 = list(dataset = dataset_with_nodes_2, tree = tree_DENV2),
-  DENV3 = list(dataset = dataset_with_nodes_3, tree = tree_DENV3),
-  DENV4 = list(dataset = dataset_with_nodes_4, tree = tree_DENV4)
-)
-
-# Compile both models
-model_static <- cmdstan_model("2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_20231220.stan")
-model_timeshift <- cmdstan_model("2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_timeshift_20250617.stan")
-
-breakpoints <- seq(1975, 2015, by = 0.5)
-
-# Loop over each serotype
-results <- list()
-res_fitness_all <- list()        # save no-breakpoint models
-res_fitness_breakpoints <- list() # save models for each breakpoint
-
-for (i in seq_along(serotypes)) {
-  serotype_name <- names(serotypes)[i]
-  cat("Running for", serotype_name, "\n")
-
-  dataset <- serotypes[[i]]$dataset
-  tree <- serotypes[[i]]$tree
-
-  # No-breakpoint model
-  res_no_bp <- estimate_rel_fitness_groups_with_branches(
-    dataset_with_nodes = dataset,
-      tree = tree,
-      min_year = min_year,
-      window = wind,
-      model_compiled = model_static,
-      iter_warmup = 1000,
-      iter_sampling = 2000,
-      seed = 1,
-      t_breakpoint = NULL,
-      max_treedepth = 15,       # increased from 12
-      adapt_delta = 0.99        # higher for complex posteriors
-  )
   
-  saveRDS(res_no_bp, file = paste0("4_Output_Data/", serotype_name, "_no_bp.rds"))
 
-  # Save no-breakpoint model result
-  res_fitness_all[[i]] <- res_no_bp
-  assign(paste0("res_fitness_", i), res_no_bp, envir = .GlobalEnv)
-
-  loo_scores <- list()
-  loo_scores[["no_breakpoint"]] <- loo(res_no_bp$fit$draws("log_lik"))
-
-  # Store all models for each breakpoint
-  model_fits_bp <- list()
-
-  for (bp in breakpoints) {
-    cat("  └── Fitting breakpoint model at year:", bp, "\n")
-
-    fit_result <- estimate_rel_fitness_groups_with_branches(
-      dataset_with_nodes = dataset,
-      tree = tree,
-      min_year = min_year,
-      window = wind,
-      model_compiled = model_timeshift,
-      iter_warmup = 1000,
-      iter_sampling = 2000,
-      seed = 1,
-      t_breakpoint = bp,
-      max_treedepth = 15,       # increased from 12
-      adapt_delta = 0.99        # higher for complex posteriors
-    )
-
-    loo_scores[[as.character(bp)]] <- loo(fit_result$fit$draws("log_lik"))
-    model_fits_bp[[as.character(bp)]] <- fit_result
-  }
-
-  # Save all breakpoint models
-  res_fitness_breakpoints[[i]] <- model_fits_bp
-  
-  saveRDS(model_fits_bp, file = paste0("4_Output_Data/", serotype_name, "_bps.rds"))
-
-  # LOO comparison
-  loo_comparison <- loo::loo_compare(loo_scores)
-  loo_df <- as.data.frame(loo_comparison)
-  loo_df$breakpoint <- rownames(loo_df)
-
-  loo_df <- loo_df %>%
-    mutate(
-      breakpoint_num = as.numeric(breakpoint),
-      breakpoint_num = ifelse(breakpoint == "no_breakpoint", 2030, breakpoint_num)
-    )
-  
-  saveRDS(loo_df, file = paste0("4_Output_Data/", serotype_name, "_loo_df.rds"))
-  
-  best_year <- loo_df %>%
-    filter(elpd_diff == max(elpd_diff, na.rm = TRUE)) %>%
-    pull(breakpoint_num)
-
-  results[[serotype_name]] <- list(
-    loo_df = loo_df,
-    best_year = best_year,
-    res_no_bp = res_no_bp,
-    res_bps = model_fits_bp
-  )
-}
-
+plot_list <- list()
 
 for (serotype in names(results)) {
   loo_df <- results[[serotype]]$loo_df
   best_year <- results[[serotype]]$best_year
+  
+  png(filename = paste0("3_Output_Figures/breakpoint_plot_DENV_", serotype, "_" , st, min_year, ".png"), width = 1600, height = 1400, res = 300)
   
   p <- ggplot(loo_df, aes(x = breakpoint_num, y = elpd_diff)) +
     geom_point() +
@@ -2282,7 +2171,18 @@ for (serotype in names(results)) {
     theme_minimal()
   
   print(p)  # Show plot for each serotype
+  
+    
+  # Close the PNG device
+  dev.off()
+  
+  plot_list[[serotype]] <- p  # Save ggplot object in list
 }
+
+plot_list[["DENV1"]]
+plot_list[["DENV2"]]
+plot_list[["DENV3"]]
+plot_list[["DENV4"]]
 ```
 
 You might encounter a warning saying that '*alpha_true_GA*' has a
@@ -2356,7 +2256,7 @@ for (i in 1:4) {
   colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
   assign(paste0('colour_lineage_', i), colour_lineage)
   
-  png(filename = paste0("3_Output_Figures/fitness_plot_DENV_", i, "_" , st, min_year, ".png"), width = 1600, height = 1400, res = 300)
+  png(filename = paste0("3_Output_Figures/fitness_plot_DENV_", i, "_" , st, "_min_year_", min_year, ".png"), width = 1600, height = 1400, res = 300)
   
   # Plot fitness data
   plot_fit_data_new(
@@ -2419,7 +2319,7 @@ for (i in 1:4) {
   xmax_actual <- max(res_fit$data$t, na.rm = TRUE)
 
   # Plot
-  png(filename = paste0("3_Output_Figures/fitness_plot_DENV_", i, "_bp_", best_year, "min_year", min_year, ".png"), width = 1600, height = 1400, res = 300)
+  png(filename = paste0("3_Output_Figures/fitness_plot_DENV_", i, "_bp_", best_year, "_min_year_", min_year, ".png"), width = 1600, height = 1400, res = 300)
 
   plot_fit_data_new(
     data = res_fit$data,
