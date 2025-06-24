@@ -2358,6 +2358,7 @@ To save some time, you may wish to load the results:
 
 Plot the fits:
 
+
 ```{r, eval = FALSE}
 order_colors = order(as.numeric(split_i$tip_and_nodes_groups))
 
@@ -2372,7 +2373,7 @@ plot_fit_data_new(data = res_fitness_i$data,
                   xmin = min_year_model, xmax = max_year)
 
 # Color key
-legend('topright', 
+legend('topright',
        legend = name_groups_i,
        fill = colour_lineage, border = colour_lineage,
        cex = 0.5, bty = 'n', ncol = 5)
@@ -2433,6 +2434,8 @@ for (i in 1:4) {
     filter(breakpoint_num != 2030) %>%
     slice_max(elpd_diff, n = 1, with_ties = FALSE) %>%
     pull(breakpoint)
+  
+  assign(paste0('best_year_', i), best_year)
 
   # Confirm it's a character and matches res_bps keys
   if (!best_year %in% names(res_bps)) {
@@ -2440,17 +2443,14 @@ for (i in 1:4) {
   }
 
   res_fit <- res_bps[[best_year]]
+  assign(paste0('res_fitness_best_year_', i), res_fit)
 
   # Retrieve plotting variables
   split <- get(paste0('split_', i))
   name_groups <- get(paste0('name_groups_', i))
   colors_groups <- get(paste0('colors_groups_', i))
-
-  order_colors <- order(as.numeric(split$tip_and_nodes_groups))
-  assign(paste0('order_colors_', i), order_colors)
-
-  colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
-  assign(paste0('colour_lineage_', i), colour_lineage)
+  order_colors <- get(paste0('order_colors_', i))
+  colour_lineage <- get(paste0('colour_lineage_', i))
 
   # Define actual xmin/xmax from model results
   xmin_actual <- max(min_year, min(res_fit$data$t, na.rm = TRUE))
@@ -2492,7 +2492,7 @@ plot_observed_vs_predicted(data = res_fitness$data,
 for (i in 1:4) {
   res_fitness <- get(paste0('res_fitness_', i))
   colour_lineage <- get(paste0('colour_lineage_', i))
-  png(filename = paste0("3_Output_Figures/observed_vs_predicted_DENV_", i, "_" ,st, ".png"), width = 1600, height = 1400, res = 300)
+  png(filename = paste0("3_Output_Figures/observed_vs_predicted_DENV_", i , "_", st, "_min_year_", min_year_model, ".png"), width = 1600, height = 1400, res = 300)
 
   plot_observed_vs_predicted(
     data = res_fitness$data,
@@ -2501,6 +2501,27 @@ for (i in 1:4) {
   )
   
   dev.off()
+}
+
+## For best year model
+for (i in 1:4) {
+
+  # Retrieve plotting variables
+  serotype_name <- paste0("DENV", i)
+  best_year <- get(paste0('best_year_', i))
+  res_fit <- get(paste0('res_fitness_best_year_', i))
+  colour_lineage <- get(paste0('colour_lineage_', i))
+  
+  png(filename = paste0("3_Output_Figures/observed_vs_predicted_DENV_", i, "min_year_", min_year, "_bp_", best_year, "_" ,st, ".png"), width = 1600, height = 1400, res = 300)
+
+  plot_observed_vs_predicted(
+    data = res_fit$data,
+    Chains = res_fit$chains,
+    colour_lineage = colour_lineage
+  )
+  
+  dev.off()
+  
 }
 
 ```
@@ -2512,7 +2533,7 @@ for (i in 1:4) {
   res_fitness <- get(paste0('res_fitness_', i))
   colour_lineage <- get(paste0('colour_lineage_', i))
   # Save the plot as a PNG
-  png(filename = paste0("3_Output_Figures/estimated_fitness_ref_ancestral_DENV_", i, "_" , st, ".png"), width = 1600, height = 1200, res = 300)
+  png(filename = paste0("3_Output_Figures/estimated_fitness_ref_ancestral_DENV_", i, "min_year_", min_year, "_", st, ".png"), width = 1600, height = 1200, res = 300)
   
   # Plot estimated fitness relative to ancestral reference
   plot_estimated_fitness_ref_ancestral(
@@ -2525,6 +2546,47 @@ for (i in 1:4) {
 
   dev.off()
 }
+
+
+
+
+#Best Yyear 
+for (i in 1:4) {
+  res_fitness <- get(paste0('res_fitness_best_year_', i))
+  colour_lineage <- get(paste0('colour_lineage_', i))
+  best_year <- get(paste0('best_year_', i))
+  # Save the plot as a PNG
+  png(filename = paste0("3_Output_Figures/estimated_fitness_ref_ancestral_DENV_", i, "min_year_", min_year, "_bp_", best_year, "_" , st, ".png"), width = 1600, height = 1200, res = 300)
+  
+  # Plot estimated fitness relative to ancestral reference
+  plot_estimated_fitness_ref_ancestral_breakpoint(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    gentime = 1 # Gentime is set to 1 year 
+  )
+  
+
+  dev.off()
+}
+
+
+
+plot_estimated_fitness_ref_ancestral(
+    data = res_fitness_3$data,
+    Chains = res_fitness_3$chains,
+    colour_lineage = colour_lineage_3,
+    gentime = 1
+  )
+
+plot_estimated_fitness_ref_ancestral_breakpoint(
+    data = res_fitness_best_year_3$data,
+    Chains = res_fitness_best_year_3$chains,
+    colour_lineage = colour_lineage_3,
+    gentime = 1
+  )
+
+## TODO: Ask noemie why gentime is 1 rather than actually generation time and why the ancestral strain set to 0 does not correspond with the most ancestral linage
 
 ```
 
@@ -2582,6 +2644,73 @@ for (i in 1:4) {
 ## ------ Relative Fitness Plot ------ ##
   # Plot estimated fitness relative to ancestral reference
   plot_estimated_fitness_ref_ancestral(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    gentime = 1
+  )
+  
+  mtext(paste0("DENV", i), line=0, side=3, outer=TRUE, cex=1)
+  
+  dev.off()
+ 
+} 
+
+
+
+# Breakpoint
+for (i in 1:4) {
+
+## ------ Model Plot ------ ##
+
+# Retrieve relevant variables
+  split <- get(paste0('split_', i))
+  res_fitness <- get(paste0('res_fitness_best_year_', i))
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i))
+  best_year <- get(paste0('best_year_', i))
+  
+  # Order colors dynamically
+  order_colors <- order(as.numeric(split$tip_and_nodes_groups))
+  assign(paste0('order_colors_', i), order_colors)
+  
+  # Assign lineage colors dynamically
+  colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
+  assign(paste0('colour_lineage_', i), colour_lineage)
+  
+  svglite(filename = paste0("3_Output_Figures/threepanel_fitness_plot_DENV_", i, "bp_", best_year,"_" , st, ".svg"), width = 3.33)
+  
+  par(mfrow = c(3, 1), oma = (c(1,1,2,1)+0.1), mar=(c(4,4,1,1)+ 0.1)) #c(bottom, left, top, right)
+  
+  # Plot fitness data
+  
+  plot_fit_data_new(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    xmin = min_year, 
+    xmax = max_year
+  )
+  
+  # Add legend
+  legend(
+    'topright', 
+    legend = name_groups,
+    fill = colour_lineage, 
+    border = colour_lineage,
+    cex = 0.5, bty = 'n', ncol = 5
+  )
+  
+## ------ Obs vs predicted Plot ------ ##
+  plot_observed_vs_predicted(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage
+  )
+
+## ------ Relative Fitness Plot ------ ##
+  # Plot estimated fitness relative to ancestral reference
+  plot_estimated_fitness_ref_ancestral_breakpoint(
     data = res_fitness$data,
     Chains = res_fitness$chains,
     colour_lineage = colour_lineage,
@@ -2704,130 +2833,6 @@ similarly.
 The SNP-sites generated vcf files are suffixed underscore_bioconda.vcf
 
 Before doing this make sure you have reconstruction files that have the AA and codon reconstructions in them
-
-# Old Code for making reconstructions
-Instead use 2_5_reconstruct_AA_changes
-
-```{r reconstruction_build, eval=FALSE}
-
-########################################################################################################################################
-## Reconstruction
-########################################################################################################################################
-ORFs = c( "2Kfrag", "NS4B", "NS4A", "NS3",  "NS2B", "NS4A", "NS1", "prM", "E", "C", "NS5") 
-#Can use mutiple orfs here if you have orf fasta files
-
-vcf_files <- c("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d1_n1026_copy_underscore_bioconda.vcf",
-                        "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d2_n796_underscore_bioconda.vcf",
-                        "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d3_n625_degap_underscore_bioconda.vcf",
-                        "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d4_n477_underscore_bioconda.vcf"
-                         )
-
-
-orf_vcf_files <- c(
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/protein 2K underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS4B underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS4A underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS3 underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS2B underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS2A underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/nonstructural protein NS1 underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/membrane glycoprotein precursor M underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/envelope protein E underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/anchored capsid protein C underscore_bioconda.vcf",
-  "~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/gene/RNA-dependent RNA polymerase NS5 underscore_bioconda.vcf"
-  )
-
-
-#Debug foreach: call this before running inside the loop
-# l = 1:length(locations)
-# l= 1
-
-##
-
-foreach(l = 1:length(locations)) %do% {
-  print(paste0('Serotype: ', locations[l]))
-  names_seqs_all_simple = unlist(lapply(names_seqs_all[[l]], function(x){
-     # Extract the substring after the first underscore, thus removing the time and keeping the name only
-    simple_name <- str_extract(x, "(?<=_).*")
-    #replace spaces with underscores
-    simple_name <- gsub("_", " ", simple_name) 
-    return(simple_name)
-  }))
-  
-  print(head(names_seqs_all_simple))
-  
-  
-  for(o in 1:length(ORFs)){
-    print(paste0('Location: ', locations[l], ' / ORF: ', ORFs[o]))
-    
-     # Load the correct VCF file
-    if (ORFs[o] == "whole_genome") {
-      data_vcf <- read.vcfR(vcf_files[l]) # Whole genome VCF for the location
-    } else {
-      # Load ORF-specific VCF and filter based on location
-      data_vcf <- read.vcfR(orf_vcf_files[o - 1]) # Adjust index to match ORFs excluding whole genome
-    }
-    
-    
-    fixed <- as.data.frame(data_vcf@fix)
-    gt <- as.data.frame(data_vcf@gt)
-    data_vcf <- cbind(fixed, gt) # Combine fixed fields with genotype data
-    
-    
-    # Extract the last three parts of longnames from correspondence_ID_EPI_all
-    longname_suffixes <- sapply(correspondence_ID_EPI_all[[l]]$longname, function(x) {
-      parts <- strsplit(x, "_")[[1]]
-      paste(tail(parts, 3), collapse = "_")
-    })
-    
-    # Extract the last three parts of column names from data_vcf
-    data_vcf_suffixes <- sapply(colnames(data_vcf), function(x) {
-      parts <- strsplit(x, "_")[[1]]
-      paste(tail(parts, 3), collapse = "_")
-    })
-    
-    # Match the suffixes and get the indices
-    m <- match(data_vcf_suffixes, longname_suffixes)
-    
-    # View unmatched longnames
-    unmatched_longnames <- setdiff(longname_suffixes, data_vcf_suffixes)
-    print(unmatched_longnames)
-    
-    # View matched data
-    matched_indices <- which(!is.na(m))
-    length(matched_indices) == length(row.names(correspondence_ID_EPI_all))
-    
-##    ##This code might be the issue 
-    colnames(data_vcf)[which(!is.na(m))] = correspondence_ID_EPI_all[[l]]$Description[m[which(!is.na(m))]]
-    
-    ## Create dataset with names of each sequence
-    dataset_tips = data.frame('ID' = 1:length(names_seqs_all[[l]]),
-                              'name_seq' = names_seqs_all[[l]],
-                              'time' = times_seqs_all[[l]])
-    ## Add AA data to the main dataset
-    a = match(names_seqs_all_simple, colnames(data_vcf))
-    a <- a[!is.na(a)] #Removing Chrom through info 
-    dataset_tips = cbind(dataset_tips, t(data_vcf[,a]))
-    colnames(dataset_tips) = c('ID', 'name_seq', 'time', data_vcf$POS)
-    
-    
-    
-    ## Reconstruction
-    reconstruction = reconstruct_node_states(tree = tree_DENV_all[[l]], 
-                                             dataset_tips = dataset_tips, 
-                                             dataset_with_nodes = dataset_with_nodes_all[[l]], 
-                                             min_prop = 0, 
-                                             max_prop = 1, 
-                                             names_seqs = names_seqs_all[[l]])
-    ## Save
-    saveRDS(reconstruction, file = paste0("1_Data/1_5_DENV",'/', locations[l], '_reconstruction_', ORFs[o], '.rds'))
-  }
-}
-
-```
-
-**Error in { : task 4 failed - "length of phenotypic and of phylogenetic
-data do not match."**
 
 
 
