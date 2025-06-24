@@ -284,6 +284,49 @@ plot_estimated_fitness_ref_ancestral = function(data, Chains, colour_lineage, ge
          col = adjustcolor(colour_lineage, alpha.f = 0.8))
 }
 
+
+plot_estimated_fitness_ref_ancestral <- function(data, Chains, colour_lineage, gentime = 1) {
+  # Extract betas
+  beta_pre <- Chains$beta_pre * gentime
+  beta_post <- Chains$beta_post * gentime
+  
+  # Compute mean and CI
+  betas_pre <- apply(beta_pre, 2, mean.and.ci)
+  betas_post <- apply(beta_post, 2, mean.and.ci)
+  
+  n_groups <- ncol(betas_pre)
+  x_vals <- barplot_heights <- 1:n_groups
+  
+  # X positions: offset bars for pre and post
+  x_pre <- x_vals - 0.2
+  x_post <- x_vals + 0.2
+  
+  # Set up plot
+  plot(NA, xlim = c(0.5, n_groups + 0.5), ylim = c(min(betas_pre[2:3,], betas_post[2:3,], 0),
+                                                   max(betas_pre[2:3,], betas_post[2:3,], 0)),
+       xlab = "Groups", ylab = "Relative fitness", xaxt = "n", bty = "n")
+  abline(h = 0, lty = 2)
+  
+  # Axes
+  axis(1, at = x_vals, labels = 1:n_groups)
+  axis(2, las = 2)
+  
+  # Add points and error bars
+  points(x_pre, betas_pre[1,], col = colour_lineage, pch = 16, cex = 0.8)
+  arrows(x_pre, betas_pre[2,], x_pre, betas_pre[3,], angle = 90, length = 0.05, code = 3,
+         col = adjustcolor(colour_lineage, alpha.f = 0.7), lwd = 1.2)
+  
+  points(x_post, betas_post[1,], col = colour_lineage, pch = 17, cex = 0.8)
+  arrows(x_post, betas_post[2,], x_post, betas_post[3,], angle = 90, length = 0.05, code = 3,
+         col = adjustcolor(colour_lineage, alpha.f = 0.7), lwd = 1.2)
+  
+  legend("topright",
+         legend = c("Pre-breakpoint", "Post-breakpoint"),
+         pch = c(16, 17),
+         bty = "n")
+}
+
+
 ## Plot observed vs predicted proportions
 plot_observed_vs_predicted = function(data, Chains, colour_lineage){
   plot(NULL, bty = 'n', xlim = c(0,1), ylim = c(0,1),
