@@ -42,7 +42,8 @@ create_vcf_from_fasta <- function(fasta_path, csv_path, output_path, serotype) {
 cat("\n====================\nRunning Serotype", serotype, "\n====================\n")
   
   
-
+  fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/gene/membrane glycoprotein precursor M underscore.fas"
+  meta_path <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d1_n1026_geneious_metadata.csv")
 
 meta_data <- read.csv(csv_path)
 colnames(meta_data)[colnames(meta_data) == "Name"] <- "time"
@@ -168,12 +169,18 @@ data_vcf <- cbind(data_vcf, genotype_matrix)
 
 # Write header and data to file
 writeLines(vcf_header, con = output_path)  # write VCF meta header
+# Write the column header row with leading "#"
+writeLines(paste0("#", paste(colnames(data_vcf), collapse = "\t")), con = output_path, append = TRUE)
+
 write.table(data_vcf, file = output_path, append = TRUE, quote = FALSE, sep = "\t",
             row.names = FALSE, col.names = TRUE)
 # for i in seq_jc_uni1000_*; do cat line.txt $i > V_$i; done
 
 cat("\n====================\n VCF Output complete for Serotype", serotype, "\n====================\n")
 }
+
+
+
 
 
 
