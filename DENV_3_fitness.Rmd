@@ -33,6 +33,7 @@ First, source all the necessary functions:
 source(file = '2_Functions/2_1_Index_computation_20240909.R')
 source(file = '2_Functions/2_2_Lineage_detection_20240909.R')
 source(file = '2_Functions/2_3_Lineage_fitness_20240909.R')
+source(file = '2_Functions/DF_edits_create_vcf_from_fasta.R')
 
 # Function to extract the start of date ranges
 extract_start_date <- function(date_entry) {
@@ -2822,18 +2823,75 @@ do this once.
 
 ## Generating vcf files from fasta alignments
 
-So I used the python SNP caller:
-<https://github.com/sanger-pathogens/snp-sites> to do this. Geneious
-doesn't work since it considers all the sequences in the alignment to be
-reads of a reference sequence, so you need something reference sequence
-agnositc. Nóemie did make a SNP matrix fasta to VCF script called
-create_vcf_from_fasta.R (with DF_edits versions too) that works
-similarly.
+Shown for the sake of example, outputs are already in the data folder 
+```{r eval=FALSE}
+  
+file_mapping <- list(
+  "1" = list(
+    fasta = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d1_n1026_underscore.fas"),
+    csv   = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d1_n1026_geneious_metadata.csv")
+  ),
+  "2" = list(
+    fasta = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d2_n796_underscore.fas"),
+    csv   = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d2_n796_geneious_metadata.csv")
+  ),
+  "3" = list(
+    fasta = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d3_n625_degap_underscore.fas"),
+    csv   = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d3_n625_degap_geneious_metadata.csv")
+  ),
+  "4" = list(
+    fasta = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d4_n477_underscore.fas"),
+    csv   = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d4_n477_geneious_metadata.csv")
+  )
+)
 
-The SNP-sites generated vcf files are suffixed underscore_bioconda.vcf
+for (serotype in 1:4) {
+  fasta_path <- file_mapping[[as.character(serotype)]]$fasta
+  meta_path <- file_mapping[[as.character(serotype)]]$csv
+  out_vcf_path  <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "vcf_from_fasta", paste0("d", serotype, ".vcf"))
+  
+  create_vcf_from_fasta(fasta_path = fasta_path, csv_path = meta_path, output_path = out_vcf_path, serotype = serotype)
+}
 
-Before doing this make sure you have reconstruction files that have the AA and codon reconstructions in them
+# # Outputs are here: 
+#   "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/vcf_from_fasta/d1.vcf",
+#   "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/vcf_from_fasta/d4.vcf",
+#   "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/vcf_from_fasta/d3.vcf",
+#   "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/vcf_from_fasta/d2.vcf"
 
+
+#### Splitting genome vcfs into gene-specific vcfs ####
+
+# Define the base directory for the VCFs
+vcf_dir <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "vcf_from_fasta")
+
+# Mapping from serotype name to VCF filename
+whole_genome_vcf_mapping <- list(
+  "Dengue_1" = "d1.vcf",
+  "Dengue_2" = "d2.vcf",
+  "Dengue_3" = "d3.vcf",
+  "Dengue_4" = "d4.vcf"
+)
+
+# Load and store each VCF into a named list
+vcf_data <- list()
+
+for (serotype in names(whole_genome_vcf_mapping)) {
+  file_path <- here(vcf_dir, whole_genome_vcf_mapping[[serotype]])
+  
+  if (file.exists(file_path)) {
+    vcf <- read.vcfR(file_path)
+    fixed <- as.data.frame(vcf@fix)
+    gt <- as.data.frame(vcf@gt)
+    combined <- cbind(fixed, gt)
+    
+    vcf_data[[serotype]] <- combined
+  } else {
+    message(paste("Missing file:", file_path))
+  }
+}
+
+```
 
 
 ### New Code Load in reconstructions from  2_5_reconstruct_AA_changes
