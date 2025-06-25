@@ -39,33 +39,34 @@ library(stringr)
 
 create_vcf_from_fasta <- function(fasta_path, csv_path, output_path, serotype) {
   
+  
 cat("\n====================\nRunning Serotype", serotype, "\n====================\n")
   
   
   fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/gene/membrane glycoprotein precursor M underscore.fas"
-  meta_path <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d1_n1026_geneious_metadata.csv")
+  
+  serotype <-1
 
-meta_data <- read.csv(csv_path)
-colnames(meta_data)[colnames(meta_data) == "Name"] <- "time"
-colnames(meta_data)[colnames(meta_data) == "Description"] <- "ID"
-meta_data_time <-meta_data$time
-meta_data <- meta_data %>%
-  mutate(
-    Region = str_split_fixed(ID, " ", 3)[, 1],
-    Clade = str_split_fixed(ID, " ", 3)[, 2],
-    Sample_ID = str_split_fixed(ID, " ", 3)[, 3]
-  )
-meta_data <- meta_data %>% unite(col = "ID", time, ID, sep = " ") %>%
-  mutate(
-    ID = gsub(" ", "_", ID),
-    time = meta_data_time
-  )
+
+
+
 
 fasta_data = read.fasta(fasta_path)
 data_seq = getSequence(fasta_data) #Extracts sequences from the FASTA file.
 data_time_seq = names(fasta_data) #Extract names, which are actually the times
 annotations = getAnnot(fasta_data) #Extract the seq ID stored in annotations
 data_name_seq <- gsub("^>", "", annotations) # remove the > 
+
+
+meta_data <- data.frame(
+  ID = data_name_seq,
+  time = as.numeric(str_split_fixed(data_name_seq, "_", 4)[, 1]),
+  sequence = sapply(data_seq, paste0, collapse = ""),
+  Region = str_split_fixed(data_name_seq, "_", 4)[, 2],
+  Serotype = str_extract(str_split_fixed(data_name_seq, "_", 4)[, 3], "^\\d+"),
+  Clade = str_split_fixed(data_name_seq, "_", 4)[, 3],
+  Sample_ID = str_split_fixed(data_name_seq, "_", 4)[, 4]
+)
 
 
 ## Transform into matrix of characters
@@ -82,6 +83,26 @@ a = meta_data[which.min(meta_data$time),]
 matrix_data = rbind(matrix_data[which(rownames(matrix_data) == a$ID),],
                     matrix_data[-which(rownames(matrix_data) == a$ID),])
 rownames(matrix_data) = c(a$ID, rownames(matrix_data)[-1])
+
+
+# Example: define gene start-end ranges (in amino acid positions)
+gene_positions <- list(
+  C = c(start = 1, end = 100),
+  prM = c(start = 101, end = 250),
+  E = c(start = 251, end = 750),
+  NS1 = c(start = 751, end = 1100),
+  NS2A = c(start = 1101, end = 1300),
+  # ... Add all DENV genes
+  NS5 = c(start = 2000, end = ncol(matrix_data))
+)
+
+# Split matrix_data into a list of matrices per gene
+gene_matrices <- lapply(gene_positions, function(range) {
+  matrix_data[, range["start"]:range["end"], drop = FALSE]
+})
+
+
+
 
 ## Transform matrix into binary matrix
 bin <- function(x){
