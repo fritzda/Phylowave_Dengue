@@ -35,17 +35,38 @@ library(stringr)
 # }
 
 
+# Example: define gene start-end ranges (in amino acid positions)
+gene_positions <- list(
+  C = c(start = 1, end = 342),
+  prM = c(start = 343, end = 840),
+  E = c(start = 841, end = 2325),
+  NS1 = c(start = 2326, end = 3381),
+  NS2A = c(start = 3382, end = 4038), #Some insertions
+  NS2B = c(start = 4039, end = 4428),
+  NS3 = c(start = 4429, end = 6285),
+  NS4A = c(start = 6286, end = 6666),
+  frag2k = c(start = 6667, end = 6735),
+  NS4B = c(start = 6736, end = 7482),
+  NS5 = c(start = 7483, end = 10188)
+)
+
+# fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d1_n1026_underscore.fas"
+fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d4_n477_underscore.fas"
+
+serotype <- 4
 
 
-create_vcf_from_fasta <- function(fasta_path, csv_path, output_path, serotype) {
+
+create_vcf_from_fasta <- function(fasta_path, gene_positions, output_path, serotype) {
   
   
 cat("\n====================\nRunning Serotype", serotype, "\n====================\n")
   
   
-  fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d1_n1026_underscore.fas"
+  # fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d1_n1026_underscore.fas"
+  fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d4_n477_underscore.fas"
   
-  serotype <- 1
+  serotype <- 4
 
 
 
@@ -85,16 +106,7 @@ matrix_data = rbind(matrix_data[which(rownames(matrix_data) == a$ID),],
 rownames(matrix_data) = c(a$ID, rownames(matrix_data)[-1])
 
 
-# Example: define gene start-end ranges (in amino acid positions)
-gene_positions <- list(
-  C = c(start = 1, end = 100),
-  prM = c(start = 101, end = 250),
-  E = c(start = 251, end = 750),
-  NS1 = c(start = 751, end = 1100),
-  NS2A = c(start = 1101, end = 1300),
-  # ... Add all DENV genes
-  NS5 = c(start = 2000, end = ncol(matrix_data))
-)
+
 
 # Split matrix_data into a list of matrices per gene
 gene_matrices <- lapply(gene_positions, function(range) {
