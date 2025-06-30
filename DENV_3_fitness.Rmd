@@ -870,7 +870,7 @@ legend('topright',
        cex = 0.5, bty = 'n', ncol = 5)
 ```
 
-```{r}
+```{r, eval = T}
 # Dynamically inferring the clades
 for (i in 1:4) {
   
@@ -2278,6 +2278,37 @@ for (i in seq_along(serotypes)) {
 
 ```
 
+Alternatively load the previous results
+```{r}
+# Assume: names(serotypes) == c("DENV1", "DENV2", "DENV3", "DENV4")
+# Assume: min_year_model is defined (same as when saving files)
+
+results <- list()  # Reinitialize results
+
+for (i in seq_along(serotypes)) {
+  serotype_name <- names(serotypes)[i]
+  cat("Loading saved results for", serotype_name, "\n")
+
+  # Load from previously saved RDS files
+  res_no_bp <- readRDS(paste0("4_Output_Data/", serotype_name, "_no_bp_", min_year_model, ".rds"))
+  res_bps   <- readRDS(paste0("4_Output_Data/", serotype_name, "_bps_", min_year_model, ".rds"))
+  loo_df    <- readRDS(paste0("4_Output_Data/", serotype_name, "_loo_df.rds"))
+
+  # Re-identify best breakpoint year
+  best_year <- loo_df %>%
+    filter(elpd_diff == max(elpd_diff, na.rm = TRUE)) %>%
+    pull(breakpoint_num)
+
+  # Store in results using original structure
+  results[[serotype_name]] <- list(
+    loo_df = loo_df,
+    best_year = best_year,
+    res_no_bp = res_no_bp,
+    res_bps = res_bps
+  )
+}
+```
+
 
 
 ```{r plot breakpoints, eval = F, results = 'hide', warning=FALSE, message=FALSE}
@@ -2769,39 +2800,39 @@ names(times_seqs_all) = locations
 
 
 #####01/24/25  TODO Are we sure this is the right/best metadata version? Length is diffent than tree tips
-
-
-## Correspondences Virus ID // EPI ID (GISAID)
-correspondence_ID_EPI_Denv_1 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d1_n1026_geneious_metadata.csv", header = T, 
-                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
-
-correspondence_ID_EPI_Denv_2 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d2_n796_geneious_metadata.csv", header = T, 
-                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
-
-correspondence_ID_EPI_Denv_3 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d3_n625_degap_geneious_metadata.csv", header = T, 
-                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
-
-correspondence_ID_EPI_Denv_4 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d4_n477_geneious_metadata.csv", header = T, 
-                                       col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
-
-
-correspondence_ID_EPI_all <- list(correspondence_ID_EPI_Denv_1, 
-                                  correspondence_ID_EPI_Denv_2, 
-                                  correspondence_ID_EPI_Denv_3, 
-                                  correspondence_ID_EPI_Denv_4)
-
-# Apply transformations to all data frames in the list, create longname and make it look liek the vcf file names
-correspondence_ID_EPI_all <- lapply(correspondence_ID_EPI_all, function(df) {
-  # Create the 'longname' column dynamically
-  df$longname <- gsub(" ", "_", paste(df$Name, df$Description, sep = "_"))
-  
-  # Reorder columns to put 'longname' first
-  df <- df[, c("longname", setdiff(names(df), "longname"))]
-  
-  return(df)
-})
-
-names(correspondence_ID_EPI_all) <- locations
+# 
+# 
+# ## Correspondences Virus ID // EPI ID (GISAID)
+# correspondence_ID_EPI_Denv_1 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d1_n1026_geneious_metadata.csv", header = T, 
+#                                        col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+# 
+# correspondence_ID_EPI_Denv_2 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d2_n796_geneious_metadata.csv", header = T, 
+#                                        col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+# 
+# correspondence_ID_EPI_Denv_3 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d3_n625_degap_geneious_metadata.csv", header = T, 
+#                                        col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+# 
+# correspondence_ID_EPI_Denv_4 = read.csv("~/Library/CloudStorage/OneDrive-NationalInstitutesofHealth/Collaborators_Data/denv_seqs_wgs/whole_genome/d4_n477_geneious_metadata.csv", header = T, 
+#                                        col.names = c("Name",	"Created Date",	"Description",	"Imported From: Filename",	"Imported From: Path",	"Sequence", "A", "B"))
+# 
+# 
+# correspondence_ID_EPI_all <- list(correspondence_ID_EPI_Denv_1, 
+#                                   correspondence_ID_EPI_Denv_2, 
+#                                   correspondence_ID_EPI_Denv_3, 
+#                                   correspondence_ID_EPI_Denv_4)
+# 
+# # Apply transformations to all data frames in the list, create longname and make it look liek the vcf file names
+# correspondence_ID_EPI_all <- lapply(correspondence_ID_EPI_all, function(df) {
+#   # Create the 'longname' column dynamically
+#   df$longname <- gsub(" ", "_", paste(df$Name, df$Description, sep = "_"))
+#   
+#   # Reorder columns to put 'longname' first
+#   df <- df[, c("longname", setdiff(names(df), "longname"))]
+#   
+#   return(df)
+# })
+# 
+# names(correspondence_ID_EPI_all) <- locations
 
 
 
@@ -2824,7 +2855,7 @@ do this once.
 ## Generating vcf files from fasta alignments
 
 Shown for the sake of example, outputs are already in the data folder 
-```{r eval=FALSE}
+```{r example Vcf from fasta , eval=FALSE}
   
 # Example: define gene start-end ranges (in amino acid positions)
 gene_positions <- list(
@@ -2886,7 +2917,7 @@ for (serotype in 1:4) {
 
 ### New Code Load in reconstructions from  2_5_reconstruct_AA_changes
 
-```{r eval=TRUE}
+```{r , eval=TRUE}
 #Loading In reconstrcutions 
 
 ########################################################################################################################################
@@ -2926,6 +2957,11 @@ for (i in seq_along(vcf_files)) {
   vcf_data[[key]] <- combined_data
 }
 
+# Extract the serotype part of each key (e.g., "serotype_1")
+serotype_groups <- str_extract(names(vcf_data), "serotype_\\d+")
+
+# Use split() to group by serotype
+vcf_data_by_serotype <- split(vcf_data, serotype_groups)
 
 
 
@@ -2964,10 +3000,14 @@ for (loc in locations) {
 
 reconstruction_locations <- c("DENV1", "DENV2", "DENV3", "DENV4")
 # Define reconstruction file paths dynamically
+
+orf_mapping <- as.list(names(gene_positions))
+names(orf_mapping) <- names(gene_positions)
+
 reconstruction_files <- list()
 for (loc in reconstruction_locations) {
   for (orf in names(orf_mapping)) {
-    file_path <- here("4_Output_Data", "4_5_DENV", paste0(loc, "_Thai_timetree_reconstruction_", orf,"04_02_25.rds"))
+    file_path <- here("4_Output_Data", "4_5_DENV", paste0(loc, "_Thai_timetree_reconstruction_", orf,"06_30_25.rds"))
     reconstruction_files[[paste0(loc, "_", orf)]] <- file_path
   }
 }
@@ -3131,7 +3171,7 @@ for (recon_name in names(reconstructions)) {
 
 
 scores_all[["Dengue_4_E_AA"]]
-scores_all[["Dengue_4_2Kfrag_AA"]]
+scores_all[["Dengue_4_frag2k_codon"]]
 
 names(scores_all)
 ```
@@ -3196,7 +3236,7 @@ Lineage defining is:
 ########################################################################################################################################
 ## Find significant snps
 ########################################################################################################################################
-sig_threshold <- 0.75 #TODO Where to set this. This is percentage of all nodes in group that have mutation. Set at 80 because made sense to us.
+sig_threshold <- 0.80 #TODO Where to set this. This is percentage of all nodes in group that have mutation. Set at 80 because made sense to us.
 # Eval 50% - 100%? 
 scores_sig_all <- list()
 
@@ -3264,7 +3304,10 @@ for (score_name in names(scores_all)) {
 ## Full genome, substitutions (NS, ie AA change) with signal
 ########################################################################################################################################
 
-data_orfs_tb <- read_xlsx("1_Data/1_5_DENV/DenMutationsEpiPosStica2022.xlsx", sheet = "DEN Addresses")
+
+##Todo update with gene_df instead
+
+data_orfs_tb <- 
 
 get_genes_for_serotype <- function(df, serotype) {
   df %>%
