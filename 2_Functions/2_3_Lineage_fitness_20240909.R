@@ -272,8 +272,8 @@ plot_fitness_values = function(data, Chains, colour_lineage, gentime){
 ## Plot raw fitness estimates
 plot_estimated_fitness_ref_ancestral = function(data, Chains, colour_lineage, gentime){
   betas = apply((Chains$beta*gentime), MARGIN = 2, function(x)mean.and.ci(x))
-  plot(1:(length(betas[1,])+1), c(betas[1,], 0), cex = 0.5,
-       col = colour_lineage, pch = 16, bty = 'n', ylim = c(0,max(betas)),
+  plot(1:(length(betas[1,])+1), c(betas[1,], 0), cex = 1,
+       col = colour_lineage, pch = 16, bty = 'n', ylim = c(min(betas), max(betas)),
        ylab = 'Relative fitness', xaxt = 'n', yaxt = 'n', xlab = 'Groups')
   abline(h=0, lty = 2)
   axis(2, las = 2)
@@ -285,46 +285,61 @@ plot_estimated_fitness_ref_ancestral = function(data, Chains, colour_lineage, ge
 }
 
 
-plot_estimated_fitness_ref_ancestral <- function(data, Chains, colour_lineage, gentime = 1) {
-  # Extract betas
+plot_estimated_fitness_ref_ancestral_breakpoint <- function(data, Chains, colour_lineage, gentime = 1) {
+  # Extract betas and scale by generation time
   beta_pre <- Chains$beta_pre * gentime
   beta_post <- Chains$beta_post * gentime
   
-  # Compute mean and CI
+  # Compute mean and 95% CI for each lineage group
   betas_pre <- apply(beta_pre, 2, mean.and.ci)
   betas_post <- apply(beta_post, 2, mean.and.ci)
   
+  # Add a reference group at the end (mean = 0, no CI)
+  betas_pre <- cbind(betas_pre, c(0, 0, 0))
+  betas_post <- cbind(betas_post, c(0, 0, 0))
+  
+  
   n_groups <- ncol(betas_pre)
-  x_vals <- barplot_heights <- 1:n_groups
   
-  # X positions: offset bars for pre and post
-  x_pre <- x_vals - 0.2
-  x_post <- x_vals + 0.2
+  # Define x-axis positions: pre to the left, post to the right
+  x_pre <- 1:n_groups - 0.05
+  x_post <- 1:n_groups + 0.05
   
-  # Set up plot
-  plot(NA, xlim = c(0.5, n_groups + 0.5), ylim = c(min(betas_pre[2:3,], betas_post[2:3,], 0),
-                                                   max(betas_pre[2:3,], betas_post[2:3,], 0)),
-       xlab = "Groups", ylab = "Relative fitness", xaxt = "n", bty = "n")
+  # Set up empty plot with proper limits and styling
+  plot(1:(n_groups + 1), c(betas_post[1,], 0), type = "n", bty = "n",
+       ylim = c(min(betas_pre[2:3,], betas_post[2:3,], 0),
+                max(betas_pre[2:3,], betas_post[2:3,], 0)),
+       xlab = "Groups", ylab = "Relative fitness", xaxt = "n", yaxt = "n")
+  
   abline(h = 0, lty = 2)
-  
-  # Axes
-  axis(1, at = x_vals, labels = 1:n_groups)
   axis(2, las = 2)
+  axis(1, at = 1:n_groups, labels = 1:n_groups)
   
-  # Add points and error bars
-  points(x_pre, betas_pre[1,], col = colour_lineage, pch = 16, cex = 0.8)
-  arrows(x_pre, betas_pre[2,], x_pre, betas_pre[3,], angle = 90, length = 0.05, code = 3,
-         col = adjustcolor(colour_lineage, alpha.f = 0.7), lwd = 1.2)
+  # Pre-breakpoint points and CI
+  points(x_pre, betas_pre[1,], col = colour_lineage, pch = 16, cex = 1)
+  arrows(x_pre, betas_pre[2,], x_pre, betas_pre[3,],
+         length = 0, angle = 0, code = 3, lwd = 1.5,
+         col = adjustcolor(colour_lineage, alpha.f = 0.8))
+  arrows(x_pre, betas_pre[2,], x_pre, betas_pre[3,],
+         length = 0, angle = 0, code = 3, lwd = 0.8,
+         col = adjustcolor(colour_lineage, alpha.f = 0.8))
   
-  points(x_post, betas_post[1,], col = colour_lineage, pch = 17, cex = 0.8)
-  arrows(x_post, betas_post[2,], x_post, betas_post[3,], angle = 90, length = 0.05, code = 3,
-         col = adjustcolor(colour_lineage, alpha.f = 0.7), lwd = 1.2)
+  # Post-breakpoint points and CI
+  points(x_post, betas_post[1,], col = colour_lineage, pch = 17, cex = 1)
+  arrows(x_post, betas_post[2,], x_post, betas_post[3,],
+         length = 0, angle = 0, code = 3, lwd = 1.5,
+         col = adjustcolor(colour_lineage, alpha.f = 0.8))
+  arrows(x_post, betas_post[2,], x_post, betas_post[3,],
+         length = 0, angle = 0, code = 3, lwd = 0.8,
+         col = adjustcolor(colour_lineage, alpha.f = 0.8))
   
+  # Legend
   legend("topright",
          legend = c("Pre-breakpoint", "Post-breakpoint"),
          pch = c(16, 17),
          bty = "n")
 }
+
 
 
 ## Plot observed vs predicted proportions
