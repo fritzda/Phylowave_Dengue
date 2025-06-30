@@ -835,36 +835,26 @@ build_dataframes_node_AA_codons = function(dataset_with_nodes, list_matrices_ORF
   overall_snps = colSums(matrix_data_bin_snp)
   a = which(overall_snps > 0)
   
-  ## This part is need to align the names of the matrix to the names in dataset_with_inferred_reconstruction_names
-  ## YOU MUST CHANGE THIS PART TO ALIGN WITH YOUR NAMING CONVENTION 
-  
-  # Logical vector: is this entry numeric-looking?
-  is_numeric <- grepl("^\\d+$", dataset_with_inferred_reconstruction_codon$name_seq)
-  # For numeric entries (assumed to be row indices)
-  node_indices <- as.numeric(dataset_with_inferred_reconstruction_codon$name_seq[is_numeric])
-  node_names <- rownames(matrix_ORFs_codon)[node_indices]
-  # For non-numeric entries (assumed to be tip labels)
-  tip_names <- dataset_with_inferred_reconstruction_codon$name_seq[!is_numeric]
-  # Merge both into a unified name vector
-  dataset_with_inferred_reconstruction_names <- character(nrow(dataset_with_inferred_reconstruction_codon))
-  # Currently the outlier is "1867", which doesn’t correspond to any row name in matrix_ORFs_codon.
-  # The reconstruction matrix includes 1867 rows.
-  # matrix_ORFs_codon only has 1866 rows.
-  # "1867" is probably just the final internal node (or an extra dummy tip) not represented in your original codon matrix.
-  idx <- match(dataset_with_inferred_reconstruction_names, rownames(matrix_ORFs_codon))
-  summary(idx)
-  
-  valid_idx <- idx[!is.na(idx)]
-  dataset_with_inferred_reconstruction_names[is_numeric] <- node_names
-  dataset_with_inferred_reconstruction_names[!is_numeric] <- tip_names
   
   
+  # Assume dataset_with_nodes and matrix_ORFs_* are in the same row order
+  # and dataset_with_nodes has 1 more row than than matrix_ORFs_codon
+  if (nrow(dataset_with_nodes) > nrow(matrix_ORFs_codon)) {
+    dataset_with_nodes <- dataset_with_nodes[1:nrow(matrix_ORFs_codon), ]
+  }
   
-  dataset_with_inferred_reconstruction_codon = cbind(dataset_with_inferred_reconstruction_codon, matrix_ORFs_codon[idx,a])
-  dataset_with_inferred_reconstruction_AA = cbind(dataset_with_inferred_reconstruction_AA, matrix_ORFs_AA[idx,a])
+  dataset_with_inferred_reconstruction_codon <- cbind(
+    dataset_with_nodes[, 1:4],
+    matrix_ORFs_codon[, a]
+  )
   
-  colnames(dataset_with_inferred_reconstruction_codon) = c(colnames(dataset_with_inferred_reconstruction_codon)[1:4], a)
-  colnames(dataset_with_inferred_reconstruction_AA) = c(colnames(dataset_with_inferred_reconstruction_AA)[1:4], a)
+  dataset_with_inferred_reconstruction_AA <- cbind(
+    dataset_with_nodes[, 1:4],
+    matrix_ORFs_AA[, a]
+  )
+  
+  colnames(dataset_with_inferred_reconstruction_codon) <- c(colnames(dataset_with_nodes)[1:4], a)
+  colnames(dataset_with_inferred_reconstruction_AA) <- c(colnames(dataset_with_nodes)[1:4], a)
   
   return(list('dataset_with_inferred_reconstruction_codon' = dataset_with_inferred_reconstruction_codon,
               'dataset_with_inferred_reconstruction_AA' = dataset_with_inferred_reconstruction_AA))
@@ -872,9 +862,10 @@ build_dataframes_node_AA_codons = function(dataset_with_nodes, list_matrices_ORF
   
 }
 
+View(list_matrices_ORFs_AA_1$frag2k)
 
-
-
+dataset_with_nodes_1$name_seq[925:990]
+rownames(list_matrices_ORFs_AA_1$frag2k)[925:990]
 
 ## Go through all orfs
 for(orf in 1:length(list_matrices_ORFs_AA_1)){
