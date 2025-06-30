@@ -5,8 +5,22 @@ library(dplyr)
 library(stringr)
 
 
-#  Example Usage
-
+# # Example: define gene start-end ranges (in amino acid positions)
+# gene_positions <- list(
+#   C = c(start = 1, end = 342),
+#   prM = c(start = 343, end = 840),
+#   E = c(start = 841, end = 2325),
+#   NS1 = c(start = 2326, end = 3381),
+#   NS2A = c(start = 3382, end = 4038), #Some insertions
+#   NS2B = c(start = 4039, end = 4428),
+#   NS3 = c(start = 4429, end = 6285),
+#   NS4A = c(start = 6286, end = 6666),
+#   frag2k = c(start = 6667, end = 6735),
+#   NS4B = c(start = 6736, end = 7482),
+#   NS5 = c(start = 7483, end = 10188),
+#   whole_genome = c(start = 1, end = 10188)
+# )
+# 
 # file_mapping <- list(
 #   "1" = list(
 #     fasta = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d1_n1026_underscore.fas"),
@@ -28,33 +42,14 @@ library(stringr)
 # 
 # for (serotype in 1:4) {
 #   fasta_path <- file_mapping[[as.character(serotype)]]$fasta
-#   meta_path <- file_mapping[[as.character(serotype)]]$csv
-#   out_vcf_path  <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "vcf_from_fasta", paste0("d", serotype, ".vcf"))
+#   out_vcf_dir  <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "vcf_from_fasta", "Test")
 #   
-#   create_vcf_from_fasta(fasta_path = fasta_path, csv_path = meta_path, output_path = out_vcf_path, serotype = serotype)
+#   create_vcf_from_fasta(fasta_path = fasta_path, 
+#                         gene_positions = gene_positions, 
+#                         output_path = out_vcf_dir, 
+#                         serotype = serotype)
+#   
 # }
-
-
-# Example: define gene start-end ranges (in amino acid positions)
-gene_positions <- list(
-  C = c(start = 1, end = 342),
-  prM = c(start = 343, end = 840),
-  E = c(start = 841, end = 2325),
-  NS1 = c(start = 2326, end = 3381),
-  NS2A = c(start = 3382, end = 4038), #Some insertions
-  NS2B = c(start = 4039, end = 4428),
-  NS3 = c(start = 4429, end = 6285),
-  NS4A = c(start = 6286, end = 6666),
-  frag2k = c(start = 6667, end = 6735),
-  NS4B = c(start = 6736, end = 7482),
-  NS5 = c(start = 7483, end = 10188)
-)
-
-# fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d1_n1026_underscore.fas"
-fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d4_n477_underscore.fas"
-
-serotype <- 4
-
 
 
 create_vcf_from_fasta <- function(fasta_path, gene_positions, output_path, serotype) {
@@ -62,13 +57,6 @@ create_vcf_from_fasta <- function(fasta_path, gene_positions, output_path, serot
   
 cat("\n====================\nRunning Serotype", serotype, "\n====================\n")
   
-  
-  # fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d1_n1026_underscore.fas"
-  fasta_path <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/whole_genome/d4_n477_underscore.fas"
-  
-  serotype <- 4
-
-
 
 
 
@@ -106,13 +94,10 @@ matrix_data = rbind(matrix_data[which(rownames(matrix_data) == a$ID),],
 rownames(matrix_data) = c(a$ID, rownames(matrix_data)[-1])
 
 
-
-
 # Split matrix_data into a list of matrices per gene
 gene_matrices <- lapply(gene_positions, function(range) {
   matrix_data[, range["start"]:range["end"], drop = FALSE]
 })
-
 
 
 
@@ -121,93 +106,95 @@ bin <- function(x){
   x=as.numeric(factor(as.character(x),levels=c("a","g","c","t", "n", "-", "b", "d", "h", "v", "r", "y", "s", "w", "k", "m")))
   return(x)
 }
-matrix_data_bin = apply(matrix_data, MARGIN = 2, FUN=bin)
+gene_matrices_bin <- lapply(gene_matrices, function(mat) {
+  apply(mat, MARGIN = 2, FUN = bin)
+})
 
-## Find SNPs Computes SNPs by comparing each sequence to the reference (first row).
-matrix_data_bin_snp = t(apply(matrix_data_bin, MARGIN = 1, FUN=function(x)x-matrix_data_bin[1,]))
-matrix_data_bin_snp = apply(matrix_data_bin_snp, MARGIN = 2, FUN=function(x)as.numeric(factor(as.numeric(factor(x, levels = c(x[1], -20:(x[1]-1), (x[1]+1):(20))))))-1)
-matrix_data_bin_snp[1:10, 1:10]
-
-## Subset matrix: Retains only positions where at least one SNP is present
-overall_snps = colSums(matrix_data_bin_snp)
-a = which(overall_snps > 0)
-pos_snp = (1:length(data_seq[[1]]))[a]
-matrix_data_bin_snp_only = matrix_data_bin_snp[,a]
-matrix_data_bin_snp_only[1:10, 1:10]
-dim(matrix_data_bin_snp_only)
-
-## Find positions where there are 1+ SNPs
-matrix_data_bin_snp_only_singles = NULL
-pos_snp_singles = NULL
-pos_snp_singles_names = NULL
-
-#Iterates over SNP positions to process single and multiple alleles
-for(i in 1:ncol(matrix_data_bin_snp_only)){
-  if(i %% 100 == 0){
-    print(paste0(i, ' / ', ncol(matrix_data_bin_snp_only)))
+for (gene_name in names(gene_matrices_bin)) {
+  message("Processing gene: ", gene_name)
+  
+  matrix_data_bin <- gene_matrices_bin[[gene_name]]
+  
+  ## Step 1: Compute SNP matrix
+  matrix_data_bin_snp <- t(apply(matrix_data_bin, 1, function(x) x - matrix_data_bin[1, ]))
+  matrix_data_bin_snp <- apply(matrix_data_bin_snp, 2, function(x) {
+    as.numeric(factor(x, levels = c(x[1], -20:(x[1]-1), (x[1]+1):20))) - 1
+  })
+  
+  ## Step 2: Subset to columns with variation
+  overall_snps <- colSums(matrix_data_bin_snp)
+  snp_cols <- which(overall_snps > 0)
+  pos_snp <- snp_cols + gene_positions[[gene_name]]["start"] - 1
+  matrix_data_bin_snp_only <- matrix_data_bin_snp[, snp_cols, drop = FALSE]
+  
+  ## Step 3: Extract single SNPs
+  matrix_data_bin_snp_only_singles <- NULL
+  pos_snp_singles <- NULL
+  pos_snp_singles_names <- NULL
+  
+  for (i in seq_len(ncol(matrix_data_bin_snp_only))) {
+    t <- table(matrix_data_bin_snp_only[, i])
+    if (length(t) <= 2) {
+      matrix_data_bin_snp_only_singles <- if (is.null(matrix_data_bin_snp_only_singles)) {
+        matrix(matrix_data_bin_snp_only[, i], ncol = 1)
+      } else {
+        cbind(matrix_data_bin_snp_only_singles, matrix_data_bin_snp_only[, i])
+      }
+      pos_snp_singles <- c(pos_snp_singles, pos_snp[i])
+      pos_snp_singles_names <- c(pos_snp_singles_names, pos_snp[i])
+    } else {
+      for (j in 2:length(t)) {
+        tmp <- matrix_data_bin_snp_only[, i]
+        tmp[tmp != (j - 1)] <- 0
+        tmp[tmp > 0] <- 1
+        matrix_data_bin_snp_only_singles <- cbind(matrix_data_bin_snp_only_singles, tmp)
+      }
+      pos_snp_singles_names <- c(
+        pos_snp_singles_names,
+        paste0(rep(pos_snp[i], length(t) - 1), "_", LETTERS[1:(length(t) - 1)])
+      )
+      pos_snp_singles <- c(pos_snp_singles, rep(pos_snp[i], length(t) - 1))
+    }
   }
   
-  t = table(matrix_data_bin_snp_only[,i])
-  if(length(t) <= 2){
-    if (is.null(matrix_data_bin_snp_only_singles)) {
-      matrix_data_bin_snp_only_singles <- matrix(matrix_data_bin_snp_only[, i], ncol = 1)
-    } else {
-      matrix_data_bin_snp_only_singles <- cbind(matrix_data_bin_snp_only_singles, matrix_data_bin_snp_only[, i])
-    }
-    pos_snp_singles = c(pos_snp_singles, pos_snp[i])
-    pos_snp_singles_names = c(pos_snp_singles_names, pos_snp[i])
-    # print(length(pos_snp_singles))
-    # print(dim(matrix_data_bin_snp_only_singles))
+  if (is.null(matrix_data_bin_snp_only_singles)) {
+    warning("No SNPs found in gene: ", gene_name)
+    next
   }
-  if(length(t) > 2){
-    # print(t)
-    for(j in 2:length(t)){
-      tmp = matrix_data_bin_snp_only[,i]
-      tmp[which(tmp != (j-1))] = 0
-      tmp[which(tmp > 0)] = 1
-      matrix_data_bin_snp_only_singles = cbind(matrix_data_bin_snp_only_singles, tmp)
-    }
-    pos_snp_singles_names = c(pos_snp_singles_names, paste0(rep(pos_snp[i], length(t)-1), '_', LETTERS[1:length(t)-1]))
-    pos_snp_singles = c(pos_snp_singles, rep(pos_snp[i], length(t)-1))
-  }
+  
+  colnames(matrix_data_bin_snp_only_singles) <- pos_snp_singles
+  
+  ## Step 4: Build VCF
+  vcf_header <- c(
+    "##fileformat=VCFv4.2",
+    "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
+  )
+  
+  data_vcf <- data.frame(
+    CHROM = rep(gene_name, ncol(matrix_data_bin_snp_only_singles)),
+    POS = pos_snp_singles_names,
+    ID = rep(".", ncol(matrix_data_bin_snp_only_singles)),
+    REF = rep("NA", ncol(matrix_data_bin_snp_only_singles)),
+    ALT = rep("NA", ncol(matrix_data_bin_snp_only_singles)),
+    QUAL = rep("5000", ncol(matrix_data_bin_snp_only_singles)),
+    FILTER = rep("PASS", ncol(matrix_data_bin_snp_only_singles)),
+    INFO = rep(".", ncol(matrix_data_bin_snp_only_singles)),
+    FORMAT = rep("GT", ncol(matrix_data_bin_snp_only_singles))
+  )
+  
+  genotype_matrix <- t(matrix_data_bin_snp_only_singles)
+  colnames(genotype_matrix) <- data_name_seq
+  data_vcf <- cbind(data_vcf, genotype_matrix)
+  
+  ## Step 5: Write VCF
+  gene_output_path <- file.path(output_path, paste0("serotype_", serotype, "_", gene_name, ".vcf"))
+  writeLines(vcf_header, con = gene_output_path)
+  cat(paste0("#", paste(colnames(data_vcf), collapse = "\t")), file = gene_output_path, append = TRUE, sep = "\n")
+  write.table(data_vcf, file = gene_output_path, append = TRUE, quote = FALSE, sep = "\t",
+              row.names = FALSE, col.names = FALSE)
+  
+  message("VCF written: ", gene_output_path)
 }
-colnames(matrix_data_bin_snp_only_singles) = pos_snp_singles
-
-
-## Write genotype vcf
-# Create VCF metadata header (manually)
-vcf_header <- c(
-  "##fileformat=VCFv4.2",
-  "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">"
-)
-
-# Prepare VCF table
-data_vcf <- data.frame(
-  CHROM = rep("CHR1", ncol(matrix_data_bin_snp_only_singles)),
-  POS = pos_snp_singles_names,
-  ID = rep(".", ncol(matrix_data_bin_snp_only_singles)),
-  REF = rep("NA", ncol(matrix_data_bin_snp_only_singles)),
-  ALT = rep("NA", ncol(matrix_data_bin_snp_only_singles)),
-  QUAL = rep("5000", ncol(matrix_data_bin_snp_only_singles)),
-  FILTER = rep("PASS", ncol(matrix_data_bin_snp_only_singles)),
-  INFO = rep(".", ncol(matrix_data_bin_snp_only_singles)),
-  FORMAT = rep("GT", ncol(matrix_data_bin_snp_only_singles))
-)
-
-# Add genotype columns for each sample (rows of matrix)
-genotype_matrix <- t(matrix_data_bin_snp_only_singles)
-colnames(genotype_matrix) <- data_name_seq  # sample names as column headers
-data_vcf <- cbind(data_vcf, genotype_matrix)
-
-
-# Write header and data to file
-writeLines(vcf_header, con = output_path)  # write VCF meta header
-# Write the column header row with leading "#"
-writeLines(paste0("#", paste(colnames(data_vcf), collapse = "\t")), con = output_path, append = TRUE)
-
-write.table(data_vcf, file = output_path, append = TRUE, quote = FALSE, sep = "\t",
-            row.names = FALSE, col.names = TRUE)
-# for i in seq_jc_uni1000_*; do cat line.txt $i > V_$i; done
 
 cat("\n====================\n VCF Output complete for Serotype", serotype, "\n====================\n")
 }
