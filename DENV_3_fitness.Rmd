@@ -2826,6 +2826,22 @@ do this once.
 Shown for the sake of example, outputs are already in the data folder 
 ```{r eval=FALSE}
   
+# Example: define gene start-end ranges (in amino acid positions)
+gene_positions <- list(
+  C = c(start = 1, end = 342),
+  prM = c(start = 343, end = 840),
+  E = c(start = 841, end = 2325),
+  NS1 = c(start = 2326, end = 3381),
+  NS2A = c(start = 3382, end = 4038), #Some insertions
+  NS2B = c(start = 4039, end = 4428),
+  NS3 = c(start = 4429, end = 6285),
+  NS4A = c(start = 6286, end = 6666),
+  frag2k = c(start = 6667, end = 6735),
+  NS4B = c(start = 6736, end = 7482),
+  NS5 = c(start = 7483, end = 10188),
+  whole_genome = c(start = 1, end = 10188)
+)
+
 file_mapping <- list(
   "1" = list(
     fasta = here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", "d1_n1026_underscore.fas"),
@@ -2847,11 +2863,15 @@ file_mapping <- list(
 
 for (serotype in 1:4) {
   fasta_path <- file_mapping[[as.character(serotype)]]$fasta
-  meta_path <- file_mapping[[as.character(serotype)]]$csv
-  out_vcf_path  <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "vcf_from_fasta", paste0("d", serotype, ".vcf"))
+  out_vcf_dir  <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "vcf_from_fasta", "Test")
   
-  create_vcf_from_fasta(fasta_path = fasta_path, csv_path = meta_path, output_path = out_vcf_path, serotype = serotype)
+  create_vcf_from_fasta(fasta_path = fasta_path, 
+                        gene_positions = gene_positions, 
+                        output_path = out_vcf_dir, 
+                        serotype = serotype)
+  
 }
+
 
 # # Outputs are here: 
 #   "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/vcf_from_fasta/d1.vcf",
@@ -2860,36 +2880,6 @@ for (serotype in 1:4) {
 #   "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/vcf_from_fasta/d2.vcf"
 
 
-#### Splitting genome vcfs into gene-specific vcfs ####
-
-# Define the base directory for the VCFs
-vcf_dir <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "vcf_from_fasta")
-
-# Mapping from serotype name to VCF filename
-whole_genome_vcf_mapping <- list(
-  "Dengue_1" = "d1.vcf",
-  "Dengue_2" = "d2.vcf",
-  "Dengue_3" = "d3.vcf",
-  "Dengue_4" = "d4.vcf"
-)
-
-# Load and store each VCF into a named list
-vcf_data <- list()
-
-for (serotype in names(whole_genome_vcf_mapping)) {
-  file_path <- here(vcf_dir, whole_genome_vcf_mapping[[serotype]])
-  
-  if (file.exists(file_path)) {
-    vcf <- read.vcfR(file_path)
-    fixed <- as.data.frame(vcf@fix)
-    gt <- as.data.frame(vcf@gt)
-    combined <- cbind(fixed, gt)
-    
-    vcf_data[[serotype]] <- combined
-  } else {
-    message(paste("Missing file:", file_path))
-  }
-}
 
 ```
 
@@ -2908,59 +2898,37 @@ for (serotype in names(whole_genome_vcf_mapping)) {
 ########################################################################################################################################
 ## Vcfs
 
+# Directory where all VCFs are stored
+vcf_dir <- "1_Data/1_5_DENV/Seq_vcf_data/denv_seqs_wgs/vcf_from_fasta/"
 
+# List all .vcf files in that directory
+vcf_files <- list.files(vcf_dir, pattern = "\\.vcf$", full.names = TRUE)
+vcf_files <- vcf_files[grepl("_", basename(vcf_files))] #removing other vcfs in directory not needed
 
-orf_mapping <- list(
-  "whole_genome" = list(
-    "Dengue_1" = "d1_n1026_bioconda.vcf",
-    "Dengue_2" = "d2_n796_bioconda.vcf",
-    "Dengue_3" = "d3_n625_degap_bioconda.vcf",
-    "Dengue_4" = "d4_n477_bioconda.vcf"
-  ),
-  "NS2A" =  "nonstructural protein NS2A underscore_bioconda.vcf",
-  "NS2B" = "nonstructural protein NS2B underscore_bioconda.vcf",
-  "2Kfrag" = "protein 2K underscore_bioconda.vcf",
-  "NS4B" = "nonstructural protein NS4B underscore_bioconda.vcf",
-  "NS4A" = "nonstructural protein NS4A underscore_bioconda.vcf",
-  "NS3" = "nonstructural protein NS3 underscore_bioconda.vcf",
-  "NS5" = "nonstructural protein NS5 underscore_bioconda.vcf",
-  "NS1" = "nonstructural protein NS1 underscore_bioconda.vcf",
-  "prM" = "membrane glycoprotein precursor M underscore_bioconda.vcf",
-  "E" = "envelope protein E underscore_bioconda.vcf",
-  "C" = "anchored capsid protein C underscore_bioconda.vcf"
-)
+# create names for the list (e.g., "serotype_1_C", "serotype_3_NS5", etc.)
+vcf_keys <- str_remove(basename(vcf_files), "\\.vcf$")  # Remove .vcf extension
 
-# Define VCF file paths dynamically using here()
-vcf_files <- list()
-for (orf in names(orf_mapping)) {
-  if (orf == "whole_genome") {
-    for (loc in locations) {
-      file_path <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "whole_genome", orf_mapping[[orf]][[loc]])
-      vcf_files[[paste0(loc, "_", orf)]] <- file_path
-    }
-  } else {
-    file_path <- here("1_Data", "1_5_DENV", "Seq_vcf_data", "denv_seqs_wgs", "gene", orf_mapping[[orf]])
-    vcf_files[[orf]] <- file_path
-  }
-}
-
-
-# Load and process each VCF file
+# Initialize list to store results
 vcf_data <- list()
-for (key in names(vcf_files)) {
-  file_path <- vcf_files[[key]]
+
+# Loop through and read
+for (i in seq_along(vcf_files)) {
+  file_path <- vcf_files[i]
+  key <- vcf_keys[i]
   
-  if (file.exists(file_path)) {
-    data_vcf <- read.vcfR(file_path)
-    fixed <- as.data.frame(data_vcf@fix)  # SNP positions
-    gt <- as.data.frame(data_vcf@gt)      # Genotype calls
-    combined_data <- cbind(fixed, gt)
-    
-    vcf_data[[key]] <- combined_data  # Store in list
-  } else {
-    message(paste("Skipping missing file:", file_path))
-  }
+  cat("Processing:", key, "\n")
+  
+  data_vcf <- read.vcfR(file_path)
+  fixed <- as.data.frame(data_vcf@fix)
+  gt <- as.data.frame(data_vcf@gt)
+  combined_data <- cbind(fixed, gt)
+  
+  vcf_data[[key]] <- combined_data
 }
+
+
+
+
 
 #Because Noemie's vcf files were made in R they can be parsed as csvs. Consider if using noemie vcf script:
 # data_vcf_world_M = read.csv(file = "2_analysis_index/3_snp_association/vcfs_and_AA_reconstructions/World/nextstrain_ncov_gisaid_global_all-time_timetree_M.vcf", sep = '\t')
