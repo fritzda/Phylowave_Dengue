@@ -586,7 +586,8 @@ reconstruction_world_S$possible_snps = colnames(reconstruction_world_S$dataset_w
 ## For each SNP, look at defining mutation of each group
 ########################################################################################################################################
 association_scores_per_group = function(dataset_with_nodes, dataset_with_inferred_reconstruction, tree, 
-                                        possible_snps, upstream_window, downstream_window){
+                                        possible_snps, upstream_window, downstream_window, 
+                                        virus = NULL, gene = NULL, level = NULL){
   ## Set list to store results
   group_names = levels(as.factor(dataset_with_nodes$groups))
   scores = as.list(rep(NA, length(group_names)-1))

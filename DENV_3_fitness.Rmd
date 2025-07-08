@@ -23,6 +23,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r, echo = F, eval=T}
 ## Not printed, set directory
 here::i_am("DENV_3_fitness.Rmd")
+st <- format(Sys.time(), "%Y-%m-%d_%H%M")
 
 
 ```
@@ -108,7 +109,8 @@ reconstruct_node_states = function(tree, dataset_tips, dataset_with_nodes, min_p
 
 ## SNP defining Mutations Function
 association_scores_per_group = function(dataset_with_nodes, dataset_with_inferred_reconstruction, tree, 
-                                        possible_snps, upstream_window, downstream_window){
+                                        possible_snps, upstream_window, downstream_window, 
+                                        virus = NULL, gene = NULL, level = NULL){
   ## Set list to store results
   ## Extracts unique group names and initializes an empty list (scores) to store results for each group.
   group_names = levels(as.factor(dataset_with_nodes$groups))
@@ -1366,7 +1368,7 @@ Instead, you may wish to load or write the results:
 
 ```{r, eval = T}
 
-st=format(Sys.time(), "%Y-%m-%d_%H%M")
+
 
 # potential_splits_3 = readRDS("4_Output_Data/potential_splits_DENV3_timescale7_wind1_2025-06-20_0018.rds")
 # potential_splits_2 = readRDS("4_Output_Data/potential_splits_DENV2_timescale7_wind1_2025-06-20_0018.rds")
@@ -3650,158 +3652,144 @@ match_columns
 # Up/downstream window and sig threshohold testing
 ```{r window and sig test}
 
+#Saving imporntant variables to resart R and make this faster
+saveRDS(reconstructions, file= here("6_Session_Data", paste0("reconstructions", st,".RData")))
+saveRDS(dataset_with_nodes_all, file= here("6_Session_Data", paste0("dataset_with_nodes_all", st,".RData")))
+saveRDS(tree_DENV_all, file= here("6_Session_Data", paste0("tree_DENV_all", st,".RData")))
+
+
+run_single_combination <- function(upstream_window, downstream_window, sig_threshold,
+                                   reconstructions_local, dataset_with_nodes_local, tree_local) {
+  tryCatch({
+
+    cat("Running: uw =", upstream_window, ", dw =", downstream_window, "\n")
+
+    levels <- c("codon", "AA")
+    scores_all <- list()
+
+    for (recon_name in names(reconstructions_local)) {
+      parts <- strsplit(recon_name, "_", fixed = TRUE)[[1]]
+
+      # Validate expected structure: Dengue_1_NS3 → 3+ parts
+      if (length(parts) < 3) {
+        warning(paste("Skipping malformed recon_name:", recon_name))
+        next
+      }
+
+      virus <- paste(parts[1:2], collapse = "_")
+      gene <- paste(parts[3:length(parts)], collapse = "_")
+      recon_obj <- reconstructions_local[[recon_name]]
+
+      for (level in levels) {
+        dataset_key <- paste0("dataset_with_inferred_reconstruction_", level)
+
+        if (!dataset_key %in% names(recon_obj)) {
+          warning(paste("Missing", dataset_key, "in", recon_name, "- skipping"))
+          next
+        }
+
+        scores_all[[paste0(virus, "_", gene, "_", level)]] <- association_scores_per_group(
+          dataset_with_nodes = dataset_with_nodes_local[[virus]],
+          dataset_with_inferred_reconstruction = recon_obj[[dataset_key]],
+          tree = tree_local[[virus]],
+          possible_snps = recon_obj$possible_snps,
+          upstream_window = upstream_window,
+          downstream_window = downstream_window,
+          virus = virus,
+          gene = gene,
+          level = level
+        )
+      }
+    }
+
+    saveRDS(scores_all, file = here("4_Output_Data", "4_5_DENV",
+      paste0("scores_all_uw_", upstream_window, "_dw_", downstream_window, ".RData")))
+
+  }, error = function(e) {
+    message("Error in run uw=", upstream_window, ", dw=", downstream_window, ": ", e$message)
+    return(NULL)
+  })
+}
+
+
+# 
+# run_single_combination(
+#     upstream_window = param_list[[1]]$upstream_window,
+#     downstream_window = param_list[[1]]$downstream_window,
+#     sig_threshold = 0.8,  # placeholder; unused here
+#     reconstructions_local = reconstructions,
+#     dataset_with_nodes_local = dataset_with_nodes_all,
+#     tree_local = tree_DENV_all
+#   )
+# 
+
+
 
 # Generate all combinations of parameter values
 param_grid <- expand.grid(
   upstream_window = seq(2, 20, by = 2),           # 2, 4, ..., 20
-  downstream_window = seq(10, 100, by = 10),      # 10, 20, ..., 100
+  downstream_window = seq(10, 100, by = 10) # ,      # 10, 20, ..., 100
   # sig_threshold = seq(0.5, 1.0, by = 0.1)          # 0.5, 0.6, ..., 1.0
-  sig_threshold = 80
 )
 
-# Optional: inspect the number of combinations
+
 nrow(param_grid)  # Should be 10 * 10 * 6 = 600
 
-# Loop through each combination
-for (i in seq_len(nrow(param_grid))) {
-  # Extract parameter values for this run
-  upstream_window <- param_grid$upstream_window[i]
-  downstream_window <- param_grid$downstream_window[i]
-  sig_threshold <- param_grid$sig_threshold[i]
 
-  try({
-  cat("Running with: upstream =", upstream_window,
-      ", downstream =", downstream_window,
-      ", sig =", sig_threshold, "\n")
-
-  levels <- c("codon", "AA")
-scores_all <- list()
-
-for (recon_name in names(reconstructions)) {
-  
-  for (level in levels) {
-    recon_obj <- reconstructions[[recon_name]]
-    cat("For:", recon_name, ",level", level, "\n")
-    # Extract virus type and gene
-    parts <- strsplit(recon_name, "_", fixed = TRUE)[[1]]
-    virus <- paste(parts[1], parts[2], sep = "_")  # e.g., "Dengue_1"
-    gene <- paste(parts[3:length(parts)], collapse = "_")  # in case gene name has underscore
-
-    scores_all[[paste0(virus, "_", gene, "_", level)]] <- association_scores_per_group(
-      dataset_with_nodes = dataset_with_nodes_all[[virus]],
-      dataset_with_inferred_reconstruction = recon_obj[[paste0("dataset_with_inferred_reconstruction_", level)]],
-      tree = tree_DENV_all[[virus]],
-      possible_snps = recon_obj$possible_snps,
-      upstream_window = upstream_window,
-      downstream_window = downstream_window
-    )
-  }
-}
-  
+# Prepare the parameter combinations as a list of lists
+param_list <- split(param_grid, seq(nrow(param_grid)))
 
 
-scores_sig_all <- list()
 
-for (score_name in names(scores_all)) {
-  # Example: "Dengue_1_NS5_codon"
-  parts <- strsplit(score_name, "_")[[1]]
-  # Dengue type number (e.g., 1, 2, 3)
-  dengue_type <- parts[2]
-  
-  # Get the appropriate split object for this DENV type
-  split_obj <- get(paste0("split_", dengue_type))
-  
-  # Set up edge lineage tree with node group mapping
-  edge_lineage_tree <- split_obj$lineage_tree$edge
-  edge_lineage_tree[, 1] <- split_obj$tip_and_nodes_groups[match(edge_lineage_tree[, 1], names(split_obj$tip_and_nodes_groups))]
-  edge_lineage_tree[, 2] <- split_obj$tip_and_nodes_groups[match(edge_lineage_tree[, 2], names(split_obj$tip_and_nodes_groups))]
-  
-  # Get the score vector (one element per node)
-  scores_vector <- scores_all[[score_name]]
-  
-  # Initialize result vector for this gene/level
-  snps_sig <- vector("list", length(scores_vector))
+#Load RData back in
+reconstructions <- readRDS("6_Session_Data/reconstructions2025-07-03_0910.RData")
+dataset_with_nodes_all <- readRDS("6_Session_Data/dataset_with_nodes_all2025-07-03_0910.RData")
+tree_DENV_all <- readRDS("6_Session_Data/tree_DENV_all2025-07-03_0910.RData")
 
-  for (i in seq_along(scores_vector)) {
-    tmp <- as.numeric(edge_lineage_tree[which(edge_lineage_tree[, 2] == i), ])
 
-    if (is.null(tmp) || length(tmp) == 0 || is.na(tmp[1])) {
-      ans <- NULL
-      des <- NULL
-    } else {
-      ans <- if (!is.na(tmp[1]) && tmp[1] <= length(scores_vector)) {
-        names(which(scores_vector[[tmp[1]]] > sig_threshold))
-      } else NULL
+library(future)
+library(future.apply)
 
-      des <- if (!is.na(tmp[2]) && tmp[2] <= length(scores_vector)) {
-        names(which(scores_vector[[tmp[2]]] > sig_threshold))
-      } else NULL
-    }
+plan(multisession) 
+options(future.globals.maxSize = 2 * 1024^3)  # 2 GB
 
-    snps_sig[[i]] <- if (!is.null(des)) des[!des %in% ans] else NULL
-  }
+# future::plan(sequential)
+# gc()
 
-  # Store the result using the same name
-  scores_sig_all[[score_name]] <- snps_sig
-}
+library(progressr)
+handlers(global = TRUE)
+handlers("txtprogressbar")
 
-  
-  # Pull only full genome AA entries
-full_genome_score_names <- grep("whole_genome_AA$", names(scores_all), value = TRUE)
+with_progress({
+# Run in parallel with future_lapply
+future_lapply(param_list, function(params) {
+  run_single_combination(
+    upstream_window = params$upstream_window,
+    downstream_window = params$downstream_window,
+    sig_threshold = 0.8,  # placeholder; unused here
+    reconstructions_local = reconstructions,
+    dataset_with_nodes_local = dataset_with_nodes_all,
+    tree_local = tree_DENV_all
+  )
+},
+future.packages = c("vcfR", "tidyverse", "here"))
+})
 
-# Initialize an empty list to hold score vectors for each Dengue type
-scores_dengue_full_genome_AA <- list()
 
-for (name in full_genome_score_names) {
-  # Extract Dengue type (e.g., "Dengue_1")
-  dengue_type <- paste(strsplit(name, "_")[[1]][1:2], collapse = "_")
 
-  # Pull scores and take max per site across nodes
-  score_matrix <- do.call(rbind, scores_all[[name]])
-  max_scores <- apply(score_matrix, MAR = 2, max)
+library(furrr)
+library(future)
 
-  # Get site positions from names (assuming name format like "X|123")
-  site_positions <- as.numeric(sapply(strsplit(names(max_scores), "\\|"), `[`, 2))
-  genome_positions <- site_positions * 3 - 1.5  # Codon to nucleotide midpoint
+options(future.globals.maxSize = 2 * 1024^3)
+plan(multisession, workers = parallel::detectCores() - 1)
 
-  names(max_scores) <- genome_positions
-  scores_dengue_full_genome_AA[[dengue_type]] <- max_scores
-}
-
-  
-  
-  
-plot_dengue_genome_AA_density(
-  scores = scores_dengue_full_genome_AA[["Dengue_1"]],
-  genes_table = gene_tables[["Dengue_1"]],
-  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
-
+results <- future_map2(
+  .x = param_grid$upstream_window,
+  .y = param_grid$downstream_window,
+  .f = ~ run_single_combination(.x, .y, 0.8,
+                                reconstructions, dataset_with_nodes_all, tree_DENV_all),
+  .options = furrr_options(seed = TRUE)
 )
-
-# Save
-pdf(file = here("3_Output_Figures", paste0("Plot_Dengue1_AA_genome_density_uw_", 
-                                           upstream_window, "_dw_" ,
-                                           downstream_window, "sig_",
-                                           sig_threshold, ".pdf")), width = 10, height = 5)
-plot_dengue_genome_AA_density(
-  scores = scores_dengue_full_genome_AA[["Dengue_1"]],
-  genes_table = gene_tables[["Dengue_1"]],
-  gene_colors = adjustcolor(gene_colors, alpha.f = 0.25)
-)
-dev.off()
-  
-
-
-
-plot_dengue_gene_heatmap("Dengue_1", "whole_genome")
-
-}, silent = TRUE)
-
-  }
-
-
-
-
 
 ```
 
