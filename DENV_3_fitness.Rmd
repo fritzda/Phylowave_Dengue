@@ -347,6 +347,7 @@ library(glue)
 library(readr)
 library(svglite)
 library(here)
+library(svglite)
 
 # font_import()
 loadfonts(device="all") 
@@ -983,7 +984,7 @@ for (i in 1:4) {
   max_year <- 2015
   
   # Two-panel plot setup
-  png(filename = paste0("3_Output_Figures/","Classical_Clades_panel_plot_DENV_", i, ".png"), width = 1800, height = 1800, res = 300)
+  svglite(filename = paste0("3_Output_Figures/","Classical_Clades_panel_plot_DENV_", i, ".svg"), width = 8, height = 10)
   par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
   
   ## Tree plot
@@ -1020,7 +1021,7 @@ for (i in 1:4) {
          cex = 0.5, bty = 'n', ncol = 5)
   
   
-  # Save the plot as PNG
+  # Save the plot
   
   dev.off()
 }
@@ -1084,11 +1085,10 @@ for (i in 1:4) {
   
   # Save the combined plot
   ggsave(
-    filename = paste0("two_panel_plot_DENV_", i, ".png"),
+    filename = paste0("3_Output_Figures/","two_panel_plot_DENV_", i, ".svg"),
     plot = combined_plot,
     width = 8,
     height = 10,
-    dpi = 300
   )
 }
 
@@ -1611,7 +1611,6 @@ for (i in 1:4) {
 
 
 
-library(svglite)
 
 
 
@@ -2077,7 +2076,7 @@ for (i in 1:4) {
   )
   
   # Save the static combined plot
-  ggsave(filename = paste0("3_Output_Figures/","DENV_", i, "_", "Classical_vs_Phylowave_Clades_combined_plot_", st, ".png"), plot = combined_plot, width = 12, height = 6, dpi = 300)
+  ggsave(filename = paste0("3_Output_Figures/","DENV_", i, "_", "Classical_vs_Phylowave_Clades_combined_plot_", st, ".svg"), plot = combined_plot, width = 12, height = 6)
   
   # Side-by-side interactive plot using ggplotly and subplot
   interactive_plot <- ggplotly(
@@ -3595,7 +3594,7 @@ plot_dengue_gene_heatmap("Dengue_1", gene)
 
 
 
-```{r examining alignments}
+```{r examining alignments, eval=FALSE}
 # The matrix to search
 aa_matrix <- list_matrices_ORFs_AA_3$whole_genome
 
@@ -3658,7 +3657,7 @@ saveRDS(dataset_with_nodes_all, file= here("6_Session_Data", paste0("dataset_wit
 saveRDS(tree_DENV_all, file= here("6_Session_Data", paste0("tree_DENV_all", st,".RData")))
 
 
-run_single_combination <- function(upstream_window, downstream_window, sig_threshold,
+run_single_combination <- function(upstream_window, downstream_window,
                                    reconstructions_local, dataset_with_nodes_local, tree_local) {
   tryCatch({
 
@@ -3728,17 +3727,16 @@ run_single_combination <- function(upstream_window, downstream_window, sig_thres
 # Generate all combinations of parameter values
 param_grid <- expand.grid(
   upstream_window = seq(2, 20, by = 2),           # 2, 4, ..., 20
-  downstream_window = seq(10, 100, by = 10) # ,      # 10, 20, ..., 100
-  # sig_threshold = seq(0.5, 1.0, by = 0.1)          # 0.5, 0.6, ..., 1.0
+  downstream_window = seq(10, 100, by = 10)     # 10, 20, ..., 100
+  
 )
 
 
-nrow(param_grid)  # Should be 10 * 10 * 6 = 600
+nrow(param_grid)
 
 
 # Prepare the parameter combinations as a list of lists
 param_list <- split(param_grid, seq(nrow(param_grid)))
-
 
 
 #Load RData back in
@@ -3766,7 +3764,6 @@ future_lapply(param_list, function(params) {
   run_single_combination(
     upstream_window = params$upstream_window,
     downstream_window = params$downstream_window,
-    sig_threshold = 0.8,  # placeholder; unused here
     reconstructions_local = reconstructions,
     dataset_with_nodes_local = dataset_with_nodes_all,
     tree_local = tree_DENV_all
@@ -3777,21 +3774,123 @@ future.packages = c("vcfR", "tidyverse", "here"))
 
 
 
-library(furrr)
-library(future)
+```
 
-options(future.globals.maxSize = 2 * 1024^3)
-plan(multisession, workers = parallel::detectCores() - 1)
 
-results <- future_map2(
-  .x = param_grid$upstream_window,
-  .y = param_grid$downstream_window,
-  .f = ~ run_single_combination(.x, .y, 0.8,
-                                reconstructions, dataset_with_nodes_all, tree_DENV_all),
-  .options = furrr_options(seed = TRUE)
+## Testing Sig Thresholds
+```{r testing sig thresholds}
+
+# Generate all combinations of parameter values, now with sig thresholds
+param_grid_sig <- expand.grid(
+  upstream_window = seq(2, 20, by = 2),           # 2, 4, ..., 20
+  downstream_window = seq(10, 100, by = 10),      # 10, 20, ..., 100
+  sig_threshold = seq(0.5, 1.0, by = 0.1)          # 0.5, 0.6, ..., 1.0
+)
+nrow(param_grid_sig)
+
+#Split to list
+param_list_sig <- split(param_grid_sig, seq(nrow(param_grid_sig)))
+  
+  
+run_single_combination_sig <- function(param, splits){
+  
+  uw <- param$upstream_window
+  dw <- param$downstream_window
+  sig_threshold <- param$sig_threshold
+  
+  tryCatch({
+    cat("→ Processing uw =", uw, ", dw =", dw, ", threshold =", sig_threshold, "\n")
+    
+    # Load scores_all file for this window
+    scores_path <- here("4_Output_Data", "4_5_DENV", 
+                        paste0("scores_all_uw_", uw, "_dw_", dw, ".RData"))
+    if (!file.exists(scores_path)) {
+      cat("⚠️ File not found:", scores_path, "\n")
+      return(NULL)
+    }
+    
+    scores_all <- readRDS(scores_path)
+    
+    scores_sig_all <- list()
+    
+    for (score_name in names(scores_all)) {
+      # Example: "Dengue_1_NS5_codon"
+      parts <- strsplit(score_name, "_")[[1]]
+      # Dengue type number (e.g., 1, 2, 3)
+      dengue_type <- parts[2]
+      
+      # Get the appropriate split object for this DENV type
+      split_obj <- splits[[dengue_type]]
+      
+      # Set up edge lineage tree with node group mapping
+      edge_lineage_tree <- split_obj$lineage_tree$edge
+      edge_lineage_tree[, 1] <- split_obj$tip_and_nodes_groups[match(edge_lineage_tree[, 1], names(split_obj$tip_and_nodes_groups))]
+      edge_lineage_tree[, 2] <- split_obj$tip_and_nodes_groups[match(edge_lineage_tree[, 2], names(split_obj$tip_and_nodes_groups))]
+      
+      # Get the score vector (one element per node)
+      scores_vector <- scores_all[[score_name]]
+      
+      # Initialize result vector for this gene/level
+      snps_sig <- vector("list", length(scores_vector))
+      
+      for (i in seq_along(scores_vector)) {
+        tmp <- as.numeric(edge_lineage_tree[which(edge_lineage_tree[, 2] == i), ])
+        
+        if (is.null(tmp) || length(tmp) == 0 || is.na(tmp[1])) {
+          ans <- NULL
+          des <- NULL
+        } else {
+          ans <- if (!is.na(tmp[1]) && tmp[1] <= length(scores_vector)) {
+            names(which(scores_vector[[tmp[1]]] > sig_threshold))
+          } else NULL
+          
+          des <- if (!is.na(tmp[2]) && tmp[2] <= length(scores_vector)) {
+            names(which(scores_vector[[tmp[2]]] > sig_threshold))
+          } else NULL
+        }
+        
+        snps_sig[[i]] <- if (!is.null(des)) des[!des %in% ans] else NULL
+      }
+      
+      # Store the result using the same name
+      scores_sig_all[[score_name]] <- snps_sig
+    }
+    
+    saveRDS(scores_sig_all, file = here("4_Output_Data", "4_5_DENV",
+                                        paste0("scores_sig_all_uw_", uw, "_dw_", dw, "_thresh_", sig_threshold, "_", st, ".RData")))
+    
+    return(paste0("Done: uw=", uw, ", dw=", dw, ", th=", sig_threshold))
+    
+  }, error = function(e) {
+    message("Error in run uw=", uw, ", dw=", dw, ", thresh=", sig_threshold, ": ", e$message)
+    return(NULL)
+  })
+  
+}
+
+
+
+
+plan(multisession)
+
+# plan(sequential)
+
+splits <- list(
+  `1` = split_1,
+  `2` = split_2,
+  `3` = split_3,
+  `4` = split_4
 )
 
+results <- future_map(param_list_sig, 
+                      run_single_combination_sig,
+                      splits = splits,
+                      .progress = TRUE)
+
+
+
 ```
+
 
 
 
