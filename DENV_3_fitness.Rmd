@@ -348,6 +348,7 @@ library(readr)
 library(svglite)
 library(here)
 library(svglite)
+library(teal.modules.general)
 
 # font_import()
 loadfonts(device="all") 
@@ -3179,8 +3180,8 @@ sars defaults
 ##Downstream 100 years? 
 
 ## Time window
-upstream_window = 2 # years (not going to the root)
-downstream_window = 10 # years (considering all the group)
+upstream_window = 10 # years (not going to the root)
+downstream_window = 100 # years (considering all the group)
 
 
 ```
@@ -3593,7 +3594,6 @@ plot_dengue_gene_heatmap("Dengue_1", gene)
 
 
 
-
 ```{r examining alignments, eval=FALSE}
 # The matrix to search
 aa_matrix <- list_matrices_ORFs_AA_3$whole_genome
@@ -3649,7 +3649,7 @@ match_columns
 ```
 
 # Up/downstream window and sig threshohold testing
-```{r window and sig test}
+```{r window and sig test, eval = FALS}
 
 #Saving imporntant variables to resart R and make this faster
 saveRDS(reconstructions, file= here("6_Session_Data", paste0("reconstructions", st,".RData")))
@@ -3778,7 +3778,7 @@ future.packages = c("vcfR", "tidyverse", "here"))
 
 
 ## Testing Sig Thresholds
-```{r testing sig thresholds}
+```{r testing sig thresholds, eval = FALSE}
 
 # Generate all combinations of parameter values, now with sig thresholds
 param_grid_sig <- expand.grid(
@@ -3889,6 +3889,141 @@ results <- future_map(param_list_sig,
 
 
 
+```
+
+## Compare files
+```{r, eval=FALSE}
+summarize_scores_sig <- function(scores_sig_all_file) {
+  # Always use readRDS regardless of the file extension
+  scores_sig_all <- readRDS(scores_sig_all_file)
+
+  param_info <- stringr::str_match(basename(scores_sig_all_file),
+                                   "uw_(\\d+)_dw_(\\d+)_thresh_((?:0\\.\\d+)|(?:1(?:\\.0)?))")
+  uw <- as.numeric(param_info[2])
+  dw <- as.numeric(param_info[3])
+  threshold <- as.numeric(param_info[4])
+
+  purrr::imap_dfr(scores_sig_all, function(gene_list, gene_name_full) {
+    virus_gene <- stringr::str_match(gene_name_full, "(Dengue_\\d)_(.*?)_(codon|AA)")
+    virus <- virus_gene[2]
+    gene <- virus_gene[3]
+    level <- virus_gene[4]
+
+    purrr::imap_dfr(gene_list, function(snps, group_index) {
+      tibble::tibble(
+        uw = uw,
+        dw = dw,
+        threshold = threshold,
+        virus = virus,
+        gene = gene,
+        level = level,
+        group = as.integer(group_index),
+        n_snps = length(snps)
+      )
+    })
+  })
+}
+
+
+
+#Run in parallel
+plan(multisession)
+
+all_sig_files <- list.files(here("4_Output_Data", "4_5_DENV","UW_DW_SigThres_Testing"),
+                          pattern = "^scores_sig_all_uw_.*\\.RData$",
+                          full.names = TRUE)
+
+summary_scores_sig <- future_map_dfr(all_sig_files, summarize_scores_sig, .progress = TRUE)
+
+
+
+# Save for later
+write_csv(summary_scores_sig, "summary_scores_sig_all.csv")
+
+
+```
+
+## Plot comparisons
+```{r}
+p_sig_compare <- summary_scores_sig %>%
+  group_by(uw, dw, threshold, virus) %>%
+  summarise(total_snps = sum(n_snps), .groups = "drop") %>%
+  ggplot(aes(x = threshold, y = total_snps, color = virus)) +
+  geom_line() +
+  facet_grid(uw ~ dw, labeller = label_both) +
+  theme_minimal()
+
+
+p_sig_compare_labeled <- add_facet_labels(p_sig_compare, xfacet_label = "DW", yfacet_label = "UW")
+
+
+grid.newpage()
+grid.draw(p_sig_compare_labeled )
+
+
+
+
+summary_scores_sig %>%
+  filter(gene == "whole_genome") %>%
+  group_by(virus, threshold, gene) %>%
+  summarise(avg_snps = mean(n_snps), .groups = "drop") %>%
+  ggplot(aes(x = threshold, y = virus, fill = avg_snps)) +
+  geom_tile() +
+  facet_wrap(~ gene) +
+  scale_fill_viridis_c() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+
+
+summary_by_params_D1_WG <- summary_scores_sig %>%
+  filter(gene == "whole_genome", level == "AA", virus == "Dengue_1") %>% 
+  group_by(uw, dw, threshold)
+
+  summary_by_params_D1_WG %>% 
+  ggplot(aes(x = threshold, y = n_snps, fill = factor(group))) +
+  geom_col(position = "dodge") +
+  facet_grid(uw ~ dw, labeller = label_both) +
+  theme_minimal()
+  
+  
+summary_by_params_D2_WG <- summary_scores_sig %>%
+  filter(gene == "whole_genome", level == "AA", virus == "Dengue_2") %>% 
+  group_by(uw, dw, threshold)
+
+  summary_by_params_D2_WG %>% 
+  ggplot(aes(x = threshold, y = n_snps, fill = factor(group))) +
+  geom_col(position = "dodge") +
+  facet_grid(uw ~ dw, labeller = label_both) +
+  theme_minimal()
+
+  
+summary_by_params_D3_WG <- summary_scores_sig %>%
+  filter(gene == "whole_genome", level == "AA", virus == "Dengue_3") %>% 
+  group_by(uw, dw, threshold)
+
+  summary_by_params_D3_WG %>% 
+  ggplot(aes(x = threshold, y = n_snps, fill = factor(group))) +
+  geom_col(position = "dodge") +
+  facet_grid(uw ~ dw, labeller = label_both) +
+  theme_minimal()
+
+  
+  
+summary_by_params_D4_WG <- summary_scores_sig %>%
+  filter(gene == "whole_genome", level == "AA", virus == "Dengue_4") %>% 
+  group_by(uw, dw, threshold)
+
+  summary_by_params_D4_WG %>% 
+  ggplot(aes(x = threshold, y = n_snps, fill = factor(group))) +
+  geom_col(position = "dodge") +
+  facet_grid(uw ~ dw, labeller = label_both) +
+  theme_minimal()
+  
+unique(split_2$groups)
+
+unique(split_1$groups)
 ```
 
 
