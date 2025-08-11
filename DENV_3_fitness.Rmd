@@ -3181,7 +3181,7 @@ sars defaults
 
 ## Time window
 upstream_window = 10 # years (not going to the root)
-downstream_window = 100 # years (considering all the group)
+downstream_window = 200 # years (considering all the group)
 
 
 ```
@@ -3211,10 +3211,62 @@ for (recon_name in names(reconstructions)) {
   }
 }
 
-saveRDS(scores_all, file= here("4_Output_Data", "4_5_DENV", paste0("scores_all_uw_", upstream_window,"_dw_", downstream_window, "_", st,".RData")))
+saveRDS(scores_all, file= here("4_Output_Data", "4_5_DENV", paste0("scores_all_uw_", upstream_window,"_dw_", downstream_window, "_", st,".rds")))
 
 ```
 
+## Plot scores
+```{r}
+tidy_group_scores <- function(group_list, virus = "Dengue_4", gene = "whole_genome", level = "AA") {
+  purrr::imap_dfr(group_list, function(group_scores, group_index) {
+    tibble(
+      group = paste0("Group_", group_index),
+      site = as.numeric(sapply(strsplit(names(group_scores), "\\|"), `[`, 2)),
+      score = as.numeric(group_scores)
+    )
+  })
+}
+
+
+
+  
+
+for (i in 1:4) {
+  # Example
+  
+  temp_score<- paste0("Dengue_", i, "_whole_genome_AA")
+  
+  
+  
+  df_AA <- tidy_group_scores(scores_all[[temp_score]])
+  
+  score_by_group_plot <- ggplot(df_AA, aes(x = site * 3 - 1.5, y = score)) +
+    geom_line(color = "black") +
+    facet_wrap(~ group, scales = "fixed") +
+    labs(
+      title = paste0("DENV", i , " SNP Association Scores by Lineage Group"),
+      x = "Genome Position (nt)",
+      y = "Association Score"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      strip.text = element_text(size = 10),
+      axis.text = element_text(size = 8)
+    )
+  
+  # Save the static combined plot
+  ggsave(filename = paste0("3_Output_Figures/","DENV_", i, "_", "_AA_genome_density_by_Group_", st, ".svg"), plot = score_by_group_plot, width = 12, height = 6)
+  
+  score_by_group_plotly <- ggplotly(score_by_group_plot)
+  # Save the interactive plot as an HTML file
+  htmlwidgets::saveWidget(score_by_group_plotly, file = paste0("3_Output_Figures/","DENV_", i, "_AA_genome_density_by_Group", st,".html"))
+  
+  }
+
+
+
+
+```
 
 ## Find significant snps
 
@@ -3232,7 +3284,7 @@ Lineage defining is:
 ########################################################################################################################################
 ## Find significant snps
 ########################################################################################################################################
-sig_threshold <- 0.80 #TODO Where to set this. This is percentage of all nodes in group that have mutation. Set at 80 because made sense to us.
+sig_threshold <- 0.70 #TODO Where to set this. This is percentage of all nodes in group that have mutation. Set at 80 because made sense to us.
 # Eval 50% - 100%? 
 scores_sig_all <- list()
 
@@ -3279,12 +3331,16 @@ for (score_name in names(scores_all)) {
   scores_sig_all[[score_name]] <- snps_sig
 }
 
-saveRDS(scores_sig_all, file= here("4_Output_Data", "4_5_DENV", paste0("scores_sig_all_uw_", upstream_window,"_dw_", downstream_window, "_", st,".RData")))
+saveRDS(scores_sig_all, file= here("4_Output_Data", "4_5_DENV", paste0("scores_sig_all_uw_", upstream_window,"_dw_", downstream_window, "_ thresh_", sig_threshold, "_", st,".rds")))
 
 ```
 
 
 ## Plot the SNPs density of the full genome
+
+
+
+
 
 
 ```{r}
@@ -3332,7 +3388,7 @@ for (name in full_genome_score_names) {
 
 
 plot_dengue_genome_AA_density <- function(scores, genes_table, gene_colors = NULL) {
-  genes_table <- dplyr::filter(genes_table, tolower(gene) != "whole_genome")
+  genes_table <- dplyr::filter(genes_table, tolower(.data$gene) != "whole_genome")
   
   if (is.null(gene_colors)) {
     gene_colors <- grDevices::rainbow(nrow(genes_table), alpha = 0.25)
@@ -3457,6 +3513,7 @@ plot_dengue_genome_AA_density(
 dev.off()
 
 
+
 ```
 
 ## Plot mutations near tree
@@ -3578,7 +3635,7 @@ genes_to_plot <- names(gene_positions)
 for(gene in genes_to_plot){
   cat("Plotting:" ,gene, "\n")
   try({
-plot_dengue_gene_heatmap("Dengue_1", gene)
+plot_dengue_gene_heatmap("Dengue_2", gene)
 }, silent = TRUE )
 }
 
