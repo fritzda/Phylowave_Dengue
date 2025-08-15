@@ -3575,7 +3575,41 @@ plot_dengue_gene_heatmap <- function(dengue_to_plot, gene_to_plot) {
       }
       
       rownames(AA_mat) <- seq_names
-      colnames(AA_mat) <- paste0(group_to_plot, ':', AAs)
+      labels_for_cols <- AAs
+
+      if (tolower(gene_to_plot) == "whole_genome") {
+        # Map genome AA position -> (gene, gene-relative AA position)
+        gt <- gene_tables[[dengue_to_plot]] |> 
+          dplyr::filter(tolower(gene) != "whole_genome") |> 
+          dplyr::mutate(
+            aa_start = ceiling(start / 3),
+            aa_end   = floor(end / 3)
+          )
+        
+        # Build gene-aware labels
+        labels_for_cols <- vapply(AAs, FUN.VALUE = character(1), function(tag) {
+          parts <- strsplit(tag, "\\|")[[1]]           # c(ref, pos, var)
+          aa_pos <- as.numeric(parts[2])
+          
+          # Find which gene this AA position falls into
+          hit <- which(gt$aa_start <= aa_pos & aa_pos <= gt$aa_end)
+          if (length(hit) == 1) {
+            rel_pos <- aa_pos - gt$aa_start[hit] + 1
+            gene_nm <- gt$gene[hit]
+            # "S|343|T — prM: S|1|T"
+            paste0(
+              parts[1], "|", parts[2], "|", parts[3],
+              " \u2014 ", gene_nm, ": ",
+              parts[1], "|", rel_pos, "|", parts[3]
+            )
+          } else {
+            # Fallback if no gene match (shouldn't happen, but be safe)
+            tag
+          }
+        })
+      }
+      
+      colnames(AA_mat) <- paste0(group_to_plot, ":", labels_for_cols)
       
       # Add spacer after setting colnames
       spacer_col <- matrix(100, nrow = nrow(AA_mat), ncol = 1)
@@ -3609,7 +3643,7 @@ plot_dengue_gene_heatmap <- function(dengue_to_plot, gene_to_plot) {
                            font.size = 2.5,
                            legend_title = "Group",
                            color = NA) +
-    scale_fill_manual(values = col_AA, na.value = "white") +
+    scale_fill_manual(values = col_AA, na.value = NA) +
     coord_cartesian(clip = "off") +
     ggtitle(title_label) +
     theme(
@@ -3635,15 +3669,27 @@ genes_to_plot <- names(gene_positions)
 for(gene in genes_to_plot){
   cat("Plotting:" ,gene, "\n")
   try({
-plot_dengue_gene_heatmap("Dengue_2", gene)
+plot_dengue_gene_heatmap("Dengue_4", gene)
 }, silent = TRUE )
 }
 
 
+plot_dengue_gene_heatmap("Dengue_4", "E")
+
+
+scores_sig_all[["Dengue_1_E_AA"]]
+scores_sig_all[["Dengue_2_E_AA"]]
+scores_sig_all[["Dengue_3_E_AA"]]
+scores_sig_all[["Dengue_4_E_AA"]]
 
   
 ```
 
+
+Whole genome plot with protien labels
+```{r}
+
+```
 
 
 
