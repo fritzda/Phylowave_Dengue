@@ -1315,7 +1315,7 @@ start_time = Sys.time()
 potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
                                                  metadata = dataset_with_nodes_1,
                                                  node_support = tree_DENV1$edge.length[match((n_seq_1+1):(2*n_seq_1-1),
-                                                                                            tree_DENV2$edge[,2])],
+                                                                                            tree_DENV1$edge[,2])],
                                                  threshold_node_support = threshold_node_support,
                                                  time_window_initial = time_window_initial,
                                                  time_window_increment = time_window_increment,

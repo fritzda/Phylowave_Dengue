@@ -909,7 +909,7 @@ old_index_plot(
     width = 8,
     height = 5)
 
-old_clade_and_index_panel_plot(
+ old_clade_and_index_panel_plot(
     dengue = 1:4,
     min_year = NULL,
     max_year = 2015,
@@ -1108,11 +1108,11 @@ parallelize_code = T
 number_cores = 8
 
 max_stepwise_deviance_explained_threshold = 0
-max_groups_found_3 = 6
-max_groups_found_2 = 3
-max_groups_found_1 = 8
-max_groups_found_4 = 2
-max_groups_found = 30
+# max_groups_found_3 = 6
+# max_groups_found_2 = 3
+# max_groups_found_1 = 8
+# max_groups_found_4 = 2
+max_groups_found_default = 30
 stepwise_AIC_threshold = 0
 
 keep_track = T
@@ -1144,7 +1144,8 @@ potential_splits_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
-                                                 max_groups_found = max_groups_found_3, 
+                                                 max_groups_found = max_groups_found_default, 
+                                                 # max_groups_found = max_groups_found_3, 
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
@@ -1173,7 +1174,7 @@ potential_splits_2 = find.groups.by.index.dynamics(timed_tree = tree_DENV2,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
-                                                 max_groups_found =  max_groups_found_2, 
+                                                 max_groups_found =  max_groups_found_default, 
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
@@ -1187,7 +1188,7 @@ start_time = Sys.time()
 potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
                                                  metadata = dataset_with_nodes_1,
                                                  node_support = tree_DENV1$edge.length[match((n_seq_1+1):(2*n_seq_1-1),
-                                                                                            tree_DENV2$edge[,2])],
+                                                                                            tree_DENV1$edge[,2])],
                                                  threshold_node_support = threshold_node_support,
                                                  time_window_initial = time_window_initial,
                                                  time_window_increment = time_window_increment,
@@ -1202,7 +1203,7 @@ potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
-                                                 max_groups_found =  max_groups_found_1, 
+                                                 max_groups_found =  max_groups_found_default, 
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
@@ -1231,7 +1232,7 @@ potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
-                                                 max_groups_found =  max_groups_found_4,
+                                                 max_groups_found =  max_groups_found_default,
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
