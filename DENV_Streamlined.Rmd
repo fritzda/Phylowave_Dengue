@@ -1124,7 +1124,7 @@ the deviance analysis
 DENV3 Run the detection function (this steps takes approximately \<10
 min on 2 cores):
 
-```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+```{r potential splits 3, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
 potential_splits_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
                                                  metadata = dataset_with_nodes_3,
@@ -1154,7 +1154,7 @@ print(end_time - start_time)
 DENV2 Run the detection function (this steps takes approximately \<10
 min on 2 cores):
 
-```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+```{r potential splits 2, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
 potential_splits_2 = find.groups.by.index.dynamics(timed_tree = tree_DENV2,
                                                  metadata = dataset_with_nodes_2,
@@ -1183,7 +1183,7 @@ print(end_time - start_time)
 DENV1 Run the detection function (this steps takes approximately \<10
 min on 2 cores):
 
-```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+```{r potential splits 1, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
 potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
                                                  metadata = dataset_with_nodes_1,
@@ -1212,7 +1212,7 @@ print(end_time - start_time)
 DENV4 Run the detection function (this steps takes approximately \<10
 min on 2 cores):
 
-```{r, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+```{r potential splits 4, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
 potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  metadata = dataset_with_nodes_4,
@@ -1237,6 +1237,21 @@ potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
 end_time = Sys.time()
 print(end_time - start_time)
 ```
+
+Saving the Potential Splits
+```{r save splits, }
+
+
+for (d in 1:4){
+  
+  potential_splits = get(sprintf("potential_splits_%d", d))
+  splits_file_name <- glue("4_Output_Data/Max_groups_potential_splits_DENV{d}_timescale{timescale}_wind{wind}_{st}.rds")
+  write_rds(potential_splits, splits_file_name)
+}
+
+```
+
+
 
 Instead, you may wish to load or write the results:
 
@@ -1272,18 +1287,23 @@ groups. Here for simplicity we directly chose max_groups_found_3 = 7. To
 decide on this many groups, we initially ran the algorithm up to 30
 groups (though it converged at 14).
 
+###TODO Why is D3 log less than 1 (log1 = 0) 
+
 ```{r linlog group plot}
-
-
-png('DENV_plots.png', width = 1800, height = 1800, res = 300)
-par(mfrow = c(4, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5), 
-    mgp = c(0.75, 0.25, 0), cex.axis = 0.5, cex.lab = 0.5, 
-    cex.main = 0.7, cex.sub = 0.5)
+max_groups_found_line_3 = 6
+max_groups_found_line_2 = 3
+max_groups_found_line_1 = 8
+max_groups_found_line_4 = 2
 
 for (i in 1:4) {
+  
+ svglite(sprintf("3_Output_Figures/3_5_DENV/3_5_99_Supplement/DENV_%d_linlog.svg", i), width = 12, height = 6)
+  par(mfrow = c(1, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5),
+      mgp = c(0.75, 0.25, 0), cex.axis = 0.5, cex.lab = 0.5,
+      cex.main = 0.7, cex.sub = 0.5)
   ## Dynamically retrieve the potential splits for the current group
   potential_splits <- get(paste0('potential_splits_', i))
-  max_groups_found_i <- get(paste0('max_groups_found_', i))
+  max_groups_found_line_i <- get(paste0('max_groups_found_line_', i))
   
   ## Dynamically create or update the data frame for the current group
   df_explained_dev_i <- data.frame(
@@ -1305,7 +1325,7 @@ for (i in 1:4) {
        ylab = 'Non-explained deviance (%)', xlab = 'Number of groups')
   axis(1, lwd = 0.5, tck = -0.02)
   axis(2, las = 2, at = seq(0, 1, 0.1), labels = seq(0, 1, 0.1) * 100, lwd = 0.5, tck = -0.02)
-  abline(v = max_groups_found_i, col = "purple", lty = 2, lwd = 0.5)
+  abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
   
   ## Log scale plot
   plot(df_explained_dev_i$N_groups,
@@ -1321,13 +1341,11 @@ for (i in 1:4) {
        at = c(0.01, 0.1, 0.25, 0.5, 1),
        labels = c(0.01, 0.1, 0.25, 0.5, 1) * 100, 
        lwd = 0.5, tck = -0.02)
-  abline(v = max_groups_found_i, col = "purple", lty = 2, lwd = 0.5)
+  abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
+  
+  dev.off()
 }
 
-dev.off()
-
-img <- readPNG("DENV_plots.png")  # Load the PNG file
-grid.raster(img)                 # Display the image
 
 ```
 
