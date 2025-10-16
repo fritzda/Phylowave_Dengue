@@ -1,0 +1,740 @@
+---
+author: "Douglas Fritz"
+date: "2025-10-13"
+# Ref: from Noémie Lefrancq https://www.medrxiv.org/content/10.1101/2023.12.23.23300456v1.full
+output: html_document
+# output:
+#   github_document:
+#     toc: false
+# editor_options: 
+#   markdown: 
+#     wrap: 72
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Input
+
+## Load codes and DENV data
+
+#### Load index functions
+
+```{r here setup, echo = F, eval=T}
+## Not printed, set directory
+here::i_am("pocketD4.Rmd")
+st <- format(Sys.time(), "%Y-%m-%d_%H%M")
+
+
+```
+
+### Load necessary packages
+
+```{r packages, echo = T, eval=T, , results = 'hide', warning=FALSE, message=FALSE}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("ggtree")
+
+# install.packages("remotes")
+# remotes::install_github(repo = "stan-dev/cmdstanr")
+
+library(ape, quiet = T); library(phytools, quiet = T); library(stringr, quiet = T)
+library(MetBrewer, quiet = T); library(parallel, quiet = T); library(mgcv, quiet = T)
+library(cowplot, quiet = T); library(ggplot2, quiet = T); library(ggtree, quiet = T);
+library(cmdstanr, quiet = T); library(binom, quiet = T); library(plotly) ; library(DescTools); 
+library(readr, quiet = T); library(glue, quiet = T)
+library(grid)
+library(png)
+library(vDiveR)
+library(vcfR)
+library(reticulate)
+library(tidyverse)
+library(foreach)
+library(extrafont)
+library(dsmisc)
+library(phangorn)
+library(glue)
+library(readr)
+library(svglite)
+library(here)
+library(svglite)
+library(teal.modules.general)
+
+# font_import()
+loadfonts(device="all") 
+
+```
+
+First, source all the necessary functions:
+
+```{r functions, eval=T}
+source(file = '2_Functions/2_1_Index_computation_20240909.R')
+source(file = '2_Functions/2_2_Lineage_detection_20240909.R')
+source(file = '2_Functions/2_3_Lineage_fitness_20240909.R')
+source(file = '2_Functions/DF_edits_create_vcf_from_fasta.R')
+
+# Function to extract the start of date ranges
+extract_start_date <- function(date_entry) {
+  # Check if the entry contains a range
+  if (str_detect(date_entry, "\\(")) {
+    # Extract the date before the '('
+    start_date <- str_extract(date_entry, "^[^\\s]+")
+  } else {
+    # It's a single date
+    start_date <- date_entry
+  }
+  
+  return(start_date)
+}
+
+
+#Reconstructs ancestral states (e.g., mutation presence/absence) along phylogenetic trees based on SNP data.
+
+reconstruct_node_states = function(tree, dataset_tips, dataset_with_nodes, min_prop, max_prop, names_seqs){
+  # Meta-data with nodes 
+  dataset_with_inferred_resonstruction = dataset_with_nodes[,1:4]
+  possible_snps = names(dataset_tips[,4:ncol(dataset_tips)])
+  
+  ## Filter SNP on frequency: only keep SNP that are present in:
+  ## >1% of dataset
+  ## <99% of dataset
+  prevalence = t(apply(dataset_tips[,4:ncol(dataset_tips)], MARGIN = 2, function(x)table(factor(x, levels = c("0", "1")))))
+  prevalence_prop = prevalence[,2]/(prevalence[,1]+prevalence[,2])
+  prevalence = cbind(prevalence, prevalence_prop)
+  possible_snps = names(which(prevalence[,3] >= min_prop & prevalence[,3] <= max_prop))
+  
+  ## Filter dataset_tips accordingly
+  a = which(is.na(match(colnames(dataset_tips), possible_snps)) == F)
+  dataset_tips = dataset_tips[,c(1:3, a)]
+  
+  print(paste0('Going though ', length(possible_snps), ' snps'))
+  k=1
+  for(i in possible_snps){
+    print(paste0(k, ' / ', length(possible_snps), ' snps'))
+    
+    snp_data = dataset_tips[,which(colnames(dataset_tips) == i)]
+    snp_data = as.factor(snp_data)
+    names(snp_data) = names_seqs
+    
+    ## Perform reconstruction for this position
+    # rec = phytools::fastAnc(tree = tree, x = snp_data, CI = TRUE, vars = T) ## factAnc lots faster than ace.ML
+    rec = ape::ace(phy = tree, x = snp_data, method = "pic")
+    rec_all = c(snp_data, rec$ace) ## List of all states: first all tips, then all nodes
+    
+    ## Find first state, to set it to 0, always
+    first_state = rec_all[which(dataset_with_inferred_resonstruction$ID == length(names_seqs) + 1)]
+    first_state = round(first_state, digits = 0)
+    
+    ## Write reconstruction in the big dataset
+    if(first_state < 1.5){ ## First state is 0: all good
+      dataset_with_inferred_resonstruction = cbind(dataset_with_inferred_resonstruction, rec_all - 1)     
+    }
+    if(first_state > 1.5){ ## First state is 1: have to change to 0
+      dataset_with_inferred_resonstruction = cbind(dataset_with_inferred_resonstruction,  2 - rec_all)
+    }
+    
+    ## Set column name to position name
+    colnames(dataset_with_inferred_resonstruction)[which(colnames(dataset_tips) == i) +1] = i
+    
+    k=k+1
+  }
+  return(list('dataset_with_inferred_resonstruction' = dataset_with_inferred_resonstruction,
+              'snp_prevalence' = prevalence,
+              'possible_snps' = possible_snps))
+}
+
+
+## SNP defining Mutations Function
+association_scores_per_group = function(dataset_with_nodes, dataset_with_inferred_reconstruction, tree, 
+                                        possible_snps, upstream_window, downstream_window, 
+                                        virus = NULL, gene = NULL, level = NULL){
+  ## Set list to store results
+  ## Extracts unique group names and initializes an empty list (scores) to store results for each group.
+  group_names = levels(as.factor(dataset_with_nodes$groups))
+  scores = as.list(rep(NA, length(group_names)-1))
+  n_tips = length(tree$tip.label)
+  
+  
+  
+  ## For each group (except the initial group, which is the root), look at snp association
+  for(j in 1:(length(group_names)-1)){ 
+    cat("Working on group", j, "of", length(group_names)-1, "\n")
+    
+    ## Find members of the group and MRCA
+    ## Identifies members of the current group and its MRCA. Ensures the MRCA is included in the list of members.
+    members = dataset_with_nodes$ID[which(dataset_with_nodes$groups == group_names[j])]
+    
+    mrca_node = getMRCA(tree, dataset_with_nodes$name_seq[which(dataset_with_nodes$groups == group_names[j] & dataset_with_nodes$is.node == 'no')])
+    if (is.null(mrca_node) || is.na(mrca_node)) {
+      cat("⚠️ getMRCA failed for group", j, "in",dataset_with_nodes, "\n")
+      next
+      }
+    members = unique(c(members, mrca_node))
+    
+    ## Update members list, with strains downstream, within the time window
+    ## Identifies members of the current group and its MRCA. Ensures the MRCA is included in the list of members.
+    time_mrca = dataset_with_nodes$time[which(dataset_with_nodes$ID == mrca_node)] ## Reference time for window
+    # tmp = getDescendants(tree, mrca)
+    # tmp = tmp[which(dataset_with_nodes$time[tmp] < time_mrca + downstream_window)]
+    # members = unique(c(tmp, members))
+    
+    ## Update members list, with strains upstream, within the time window
+    ancest = Ancestors(x = tree, node = mrca_node, type = 'all')
+    
+    if (length(ancest) == 0) {
+      cat("⚠️ Group", j, "in", virus, gene, level, "has MRCA at root → no ancestors available\n")
+      
+      # Use just members for downstream analysis (no ancestors to add)
+      all_nodes_of_interest <- members
+    } else {
+      # Normal case: Use members + valid ancestors
+      time_ancest = dataset_with_nodes$time[ancest]
+      time_ancest[1] = time_mrca
+      tmp = which(time_ancest < time_mrca - upstream_window)
+      if(length(tmp) > 0) ancest = ancest[-tmp]
+      if(length(ancest) == 0) ancest = Ancestors(tree, node = mrca, type = 'all')[1]
+      groups_ancest = dataset_with_nodes$groups[ancest]
+      gr = min(as.numeric(as.character(groups_ancest)))
+      ancest = ancest[which(groups_ancest == gr)]
+      time_ancest = dataset_with_nodes$time[ancest]
+      
+      all_nodes_of_interest <- unique(c(ancest, members))
+    }
+    
+    ## Branches of interest
+    branches = tree$edge
+    branches = branches[match(all_nodes_of_interest, branches[,2]),] ## Take all tips, from ancests, members
+    tmp = which(is.na(match(branches[,1], c(ancest, members))))
+    if(length(tmp) > 0){  branches = branches[-tmp, ]} ## Remove nodes that are not in ancest or members
+    
+    ## Branches time
+    branches_time = branches
+    branches_time[,1] = dataset_with_nodes$time[branches[,1]]
+    branches_time[,2] = dataset_with_nodes$time[branches[,2]]
+    
+    ## Branches group (checked: ok)
+    branches_group = branches
+    branches_group[,1] = dataset_with_nodes$groups[branches[,1]]
+    branches_group[,2] = dataset_with_nodes$groups[branches[,2]]
+    
+    ## Make branch group matrix binary: 1=group of interest, 0=other group (eg ancestral)
+    branches_group[which(branches_group == j, arr.ind = T)] = 1
+    branches_group[which(branches_group > j, arr.ind = T)] = 0
+    
+    snps = time_diff = snps_props_within = snps_props_whole = names_possibles_snps = NULL
+    
+    
+    cat("👉 DEBUG: group", j, "(", group_names[j], ") in", virus, gene, level, "\n")
+    cat("Number of members:", length(members), "\n")
+    cat("Number of ancestors:", length(ancest), "\n")
+    cat("Branches:", nrow(branches), "\n")
+    cat("Possible SNPs:", length(possible_snps), "\n")
+    ## Extracts SNP states for the start and end nodes of each branch for the current SNP.
+    
+    scores[[j]] <- numeric(length(possible_snps))
+    
+    for (i in 1:length(possible_snps)) {
+      snp_name <- possible_snps[i]
+      col_idx <- which(colnames(dataset_with_inferred_reconstruction) == snp_name)
+      branches_snp <- branches
+      branches_snp[, 1] <- dataset_with_inferred_reconstruction[branches[, 1], col_idx]
+      branches_snp[, 2] <- dataset_with_inferred_reconstruction[branches[, 2], col_idx]
+      
+      if (length(ancest) == 0) {
+        ancestral_state <- dataset_with_inferred_reconstruction[mrca_node, col_idx]
+      } else {
+        k <- 1
+        ancestral_state <- branches_snp[which(branches[, 1] == rev(ancest)[k]), 1]
+        k <- 2
+        while (str_detect(ancestral_state, pattern = 'n|X') == TRUE & k <= length(ancest) - 1) {
+          current_ancestor <- rev(ancest)[k]
+          idx <- which(branches[, 1] == current_ancestor)
+          if (length(idx) == 0) {
+            cat("⚠️ No match for ancestor node in branches[,1] at SNP", i, "\n")
+            break
+          }
+          ancestral_state <- branches_snp[idx, 1]
+          k <- k + 1
+        }
+        if (str_detect(ancestral_state, pattern = 'n|X') == TRUE) {
+          ancestral_state <- branches_snp[which(branches[, 1] == mrca_node), 1][1]
+        }
+      }
+      
+      branches_snp[str_detect(branches_snp, pattern = 'n|X')] = ancestral_state
+      
+      ## Converts SNP states into a binary format indicating differences from the ancestral state. 
+      ## Calculates the association score (score3) for the SNP.
+      branches_snp_bin = (branches_snp!=ancestral_state)
+      
+      tmp = which(branches_group[,1] == 1 & branches_group[,2] == 1)
+      Px = as.numeric(branches_group[tmp,])
+      ## Px = 1 → If the branch belongs to the phylogenetic group.
+      ## Px = 0 → If the branch is outside the group.
+      Sx = as.numeric(branches_snp_bin[tmp,])
+      ## Sx = 1 → If the SNP is mutated at that position.
+      ##Sx = 0 → If the SNP retains the ancestral state.
+      if (length(Px) == 0) {
+        scores[[j]][i] <- NA
+        names_possibles_snps <- c(names_possibles_snps, paste0(ancestral_state, '|', snp_name, '|NA'))
+        next
+      }
+      score3 <- (sum((1 - Px)*(1 - Sx), na.rm=TRUE) + sum(Px*Sx, na.rm=TRUE)) / length(Px)
+      ## Px: Presence/absence of the phylogenetic group.
+      ## Sx: Presence/absence of the SNP.
+      ## score3: Measures how well the mutation segregates within the group 
+      ## (higher values suggest stronger association).
+      ## Entries where the score is 1 indicate a perfect association (mutation is fully linked with the group).
+      
+      scores[[j]][i] = score3
+      
+      t <- table(branches_snp)
+      if (length(t) == 0 || all(names(t) == ancestral_state)) {
+        names_possibles_snps <- c(names_possibles_snps, paste0(ancestral_state, '|', snp_name, '|NA'))
+      } else {
+        t <- t[names(t) != ancestral_state]
+        derived_state <- names(t)[which.max(t)]
+        names_possibles_snps <- c(names_possibles_snps, paste0(ancestral_state, '|', snp_name, '|', derived_state))
+      }
+      
+    }
+    scores[[j]] = scores[[j]]#- median(scores[[j]])
+    names(scores[[j]]) = names_possibles_snps
+    ## Each entry for a group has both a name and a value:
+    ## A name that follows the pattern "X|Y|Z", which corresponds to:
+      ## X: Ancestral state (e.g., 0).
+      ## Y: SNP position index (e.g., 1, 2, 3, ...).
+      ## Z: Derived state (present for some SNPs, missing for others).
+    ## A value that represents a computed score for SNP association
+    
+    ## For example, in 1.06490532281936|15|1 - Value 1 
+    ## The score is 1.06490532281936 (a high association score)
+    ## 15 is the SNP position
+    ## 1 is the derived state (different from the ancestral state 0)
+    ## Value of 1 Suggests Linieage defining mutaiton
+    ## As compared to 0.0642177183586905|136|0 - Value 1
+    
+  }
+  return(scores)
+  ## calculate association scores between SNPs and phylogenetic groups, considering evolutionary and temporal relationships.
+  ## The scores quantify how well specific SNPs distinguish groups of nodes/tips in the tree.
+}
+
+
+read_clean_tree <- function(file) {
+  tr <- ape::read.nexus(file)
+  tr <- collapse.singles(ladderize(multi2di(tr, random = FALSE), right = FALSE))
+  tr
+}
+
+```
+
+**Explainer: For the association scores:**
+
+`score3 <- (sum((1 - Px)*(1 - Sx), na.rm=TRUE) + sum(Px*Sx, na.rm=TRUE)) / length(Px)`
+
+$$
+\text{score3} = \frac{\sum (1 - P_x)(1 - S_x) + \sum P_x S_x}{\text{length}(P_x)}
+$$
+
+**First term: `sum((1 - Px) * (1 - Sx))`**
+
+-   Counts cases where **neither** the group nor the SNP mutation is
+    present
+
+**Second term: `sum(Px * Sx)`**
+
+-   Counts cases where **both** the group and the SNP mutation are
+    present.
+
+**Denominator: `length(Px)`**
+
+-   Normalizes by the number of branches considered.
+
+##### **What Does `score3` Represent?**
+
+-   If **score = 1** → **Perfect association** (mutation occurs
+    exclusively within the group).
+
+-   If **score = 0** → No association (mutation occurs randomly outside
+    the group).
+
+-   Intermediate values (e.g., `0.5`) → Partial association (mutation is
+    somewhat linked to the group).
+
+## Explainer: Compute the index dynamics
+
+To compute the index of all nodes, use the function *compute.index*, you
+will need different inputs:
+
+1.  Data:
+    -   the *timed_tree*
+    -   *metadata* dataframe (see below the details of the
+        *dataset_with_nodes*)
+    -   *distance matrix*: can be computed from the timed tree with the
+        function *dist.nodes.with.names*
+2.  Information on the pathogen genome (these are pathogen specific):
+    -   The genome length of the pathogen considered: *genome_length*
+        (in bp).
+    -   The mutation rate of the pathogen considered: *mutation_rate*
+        (in bp/genome/year), an average is fine.
+3.  Index parameters (these are both pathogen-specific and
+    dataset-specific):
+    -   The timescale: *timescale* (in years), this will be used to
+        compute the bandwidth, see more details below.
+    -   Window of time on which to search for samples in the population:
+        *wind*, see more details below.
+
+The function outputs a vector containing the index of each node
+(internal and terminal).
+
+**timescale**: The timescale determines the kernel which enables to
+track lineage emergence dynamically, focusing on short distances between
+nodes (containing information about recent population dynamics) rather
+than long distances (containing information about past evolution). The
+timescale is tailored to the specific pathogen studied and its choice
+depends on the molecular signal, as well as the transmission rate. In
+the study, we used timescales ranging from months (typical of RNA
+viruses) to years (typical of bacteria). To determine a timescale
+suitable for your dataset, we recommend thinking about the generation
+time of the pathogen considered, its mutation rate, and the amount of
+diversity already accumulated. For example, at the time of the analysis,
+SARS-CoV-2 was a new pathogen, spreading quickly and accumulating
+diversity at a rate of \~2 mutations per month. Therefore, a small
+timescale of less than a year chosen (0.15 years). On the contrary,
+*Mycobacterium tuberculosis* is an older and relatively slowly spreading
+pathogen, which accumulates mutations at a rate of \~0.2 mutation per
+year. A much larger timescale was then chosen (30 years), to reflect
+this. Ultimately, the best timescale is one that maximises the
+visualisation of population dynamics. We recommend trying different
+values.
+
+**wind**: The choice of *wind* will depend on the sampling intensity of
+the dataset. It defines the window of time around each node on which to
+search for samples in the population. Ultimately it smooths the index
+dynamics. As a mean of example, for SARS-CoV-2, we set *wind* to 15
+days, as the dataset was intensely sampled. But for *Bordetella
+pertussis*, which is more sparsely sampled, we chose a *wind* of 1 year.
+If *wind* is too large, then all the nodes are considered to be part of
+the same time window. If *wind* is too small, then only the nodes in
+direct proximity of the node of interest will be considered in the time
+window, which can result in noisy index dynamics. We recommend choosing
+a *wind* value that enables to span multiple sampling times, for example
+if you have samples and nodes every week, you may choose a *wind* of
+\~1-2 months. If you have samples and nodes every year, you may choose a
+*wind* of \~2 years.
+
+### Set the index parameters.
+
+```{r index params, eval=T}
+## Length genome 
+genome_length = 11000 # reference  https://nextstrain.org/dengue/all/genome Could also just use 11kb or something highly specific
+## Mutation rate 
+mutation_rate = 7.6e-4
+  #7.6e-4 # mutation rate #ref https://pmc.ncbi.nlm.nih.gov/articles/PMC9030598/
+mutation_rate_sci <- formatC(mutation_rate, format = "e", digits = 2)
+## Parameters for the index
+timescale = 7 ## Timescale in years; raises index 
+## Window of time on which to search for samples in the population
+wind = 365 #days 
+wind = wind/365 #Wind smooths lines
+
+
+```
+
+
+## Find DENGUE clades based on index dynamics
+
+#### Run the lineage detection algorithm on DENGUE data
+
+To run the lineage detection algorithm, use the function
+*find.groups.by.index.dynamics*, you will need different inputs:
+
+1.  Data: *timed_tree* (must be the same as the one used in
+    compute.index) and *metadata* (*dataset_with_nodes*, with the index
+    values of each node)
+2.  Lineage detection parameters:
+    -   *min_descendants_per_tested_node*: to start the analysis, start
+        from nodes that have this minimum number of sequences
+    -   *min_group_size*: minimum group size, when creating a new
+        potential split
+    -   *node_support*: numeric value of support of each node (e.g.
+        mutations on the branch leading to the node, or bootstrap
+        support)
+    -   *threshold_node_support*: threshold on the node support for the
+        nodes to be considered in the detection algorithm
+    -   *weight_by_time*: size of the window of time on which to compute
+        the weights (NULL or numeric, in years)
+    -   *weighting_transformation*: type of weighting to use (NULL,
+        inv_freq, inv_sqrt, or inv_log)
+    -   *max_groups_found*: maximum number of groups to find (Integer)
+3.  Technical parameters: they do not necessarily need to be updated
+    (see the function documentation for details): *p_value_smooth*,
+    *stepwise_deviance_explained_threshold*, *stepwise_AIC_threshold*,
+    *k_smooth*, *parallelize_code*, *number_cores*, *plot_screening*,
+    *keep_track* and *log_y*.
+
+The function outputs multiple elements in a list:
+
+-   potential_splits: vector of the nodes included in most complex model
+    tested
+-   best_dev_explained: vector of the deviance explained by the best
+    models for each number of groups
+-   first_dev: the null deviance of the initial model (when no lineage
+    is present)
+-   best_AIC : vector of the AIC of the best models for each number of
+    groups
+-   best_BIC: vector of the BIC of the best models for each number of
+    groups
+-   best_summary: list of the summaries of the best models for each
+    number of groups
+-   best_mod: list of the best models for each number of groups
+-   best_groups: list of the groups used in the best models for each
+    number of groups
+-   best_nodes_names: list of the nodes included in the best models for
+    each number of groups
+
+Typically, one chooses a value of *max_groups_found* greater than the
+expected number of lineages. The algorithm then runs until it finds all
+those groups, or until it cannot find any significant split anymore. The
+user can then check the deviance explained by all the models with
+increasing complexity and choose an adequate number of groups.
+
+Once the split nodes have been defined, the user can then extract the
+group ID for each node using the function *merge.groups*. One can choose
+to refine these groups if needed, by setting a minimum number of nodes
+per group (*group_count_threshold*) or a minimum frequency of each group
+(*group_freq_threshold*).
+
+Parameters for the detection:
+
+```{r model params, eval =TRUE}
+time_window_initial = 2030;
+time_window_increment = 100;
+p_value_smooth = 0.05
+weight_by_time = 0.1
+k_smooth = -1
+threshold_node_support = 1/(29903*0.00081)
+plot_screening = F
+min_descendants_per_tested_node = 30
+min_group_size = 30
+weighting_transformation = c('inv_sqrt')
+
+parallelize_code = T
+number_cores = 8
+
+max_stepwise_deviance_explained_threshold = 0
+
+# max_groups_found_4 = 2
+max_groups_found_default = 30
+stepwise_AIC_threshold = 0
+
+keep_track = T
+```
+To ‘force’ more lineages to be detected by phylowave, you have two options (and you can use both at the same time):
+- 1: change the lineages you’re proposing: if your current code restricts the lineages to have at least 100 tips+nodes, you could change this to 10. This will effectively allow the model to test smaller lineages. The parameters to change for this are ‘min_descendants_per_tested_node’, and also min_group_size’. You can also set the ‘threshold_node_support’ parameter to NULL, effectively not filtering node based on any support value.
+- 2: make it harder for the model to stop the exploration of new lineages. By default, phylowave needs each new lineage set to significantly improve the model fit. The significance of the improvement is mainly set by two parameters: “p_value_smooth” and “stepwise_deviance_explained_threshold”. The first step is making sure each new group (linked with an index dynamics) has a well-supported spline, typically with a p-value of 0.05. You could change this to 1, effectively allowing all splines to be included (so no filter anymore). The second parameter sets the minimum improvement of deviance explained by each model. If this minimum is not reached, than the model stops. You can set this one to 0, which will make your model stop only when it can’t improve the deviance at all.
+
+#load in what you need to debug
+```{r}
+potential_splits_4 <- read_rds("potential_splits_4.rds")
+
+dataset_with_nodes_4 <- read_rds("dataset_with_nodes_4.rds")
+tree_DENV4 <- read_rds("tree_DENV4.rds")
+split_4 <- read_rds("split_4.rds")
+
+```
+
+
+DENV4 Run the detection function (this steps takes approximately \<10
+min on 2 cores):
+
+```{r potential splits 4, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+start_time = Sys.time()
+potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
+                                                 metadata = dataset_with_nodes_4,
+                                                 node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                                                                            tree_DENV4$edge[,2])],
+                                                 threshold_node_support = threshold_node_support,
+                                                 time_window_initial = time_window_initial,
+                                                 time_window_increment = time_window_increment,
+                                                 min_descendants_per_tested_node = min_descendants_per_tested_node,
+                                                 min_group_size = min_group_size,
+                                                 p_value_smooth = p_value_smooth,
+                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_AIC_threshold = stepwise_AIC_threshold,
+                                                 weight_by_time = weight_by_time,
+                                                 weighting_transformation = weighting_transformation,
+                                                 k_smooth = k_smooth,
+                                                 parallelize_code = parallelize_code,
+                                                 number_cores = number_cores, 
+                                                 plot_screening = plot_screening,
+                                                 max_groups_found =  max_groups_found_default,
+                                                 keep_track = keep_track)
+end_time = Sys.time()
+print(end_time - start_time)
+```
+1] "Considering tree up to 2030-------------------------->"
+[1] "Testing 40 nodes"
+[1] "Better fit found"
+[1] "Deviance explained by 45.158% more"
+[1] 441
+[1] "Testing 39 nodes"
+[1] "Better fit found"
+[1] "Deviance explained by 7.035% more"
+[1] 441 443
+[1] "Testing 38 nodes"
+[1] "Better fit found"
+[1] "Deviance explained by 0.659% more"
+[1] 441 443 557
+[1] "Testing 37 nodes"
+[1] "No better fit found"
+
+
+
+```{r linlog group plot}
+max_groups_found_line_4 = 2
+
+for (i in 4) {
+  
+ svglite(sprintf("3_Output_Figures/3_5_DENV/3_5_99_Supplement/DENV_%d_linlog.svg", i), width = 12, height = 6)
+  par(mfrow = c(1, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5),
+      mgp = c(0.75, 0.25, 0), cex.axis = 0.5, cex.lab = 0.5,
+      cex.main = 0.7, cex.sub = 0.5)
+  ## Dynamically retrieve the potential splits for the current group
+  potential_splits <- get(paste0('potential_splits_', i))
+  max_groups_found_line_i <- get(paste0('max_groups_found_line_', i))
+  
+  ## Dynamically create or update the data frame for the current group
+  df_explained_dev_i <- data.frame(
+    'N_groups' = 0:length(potential_splits$best_dev_explained),
+    'Non_explained_deviance' = (1 - c(potential_splits$first_dev, potential_splits$best_dev_explained)),
+    'Non_explained_deviance_log' = log(1 - c(potential_splits$first_dev, potential_splits$best_dev_explained))
+  )
+  
+  ## Adjust the log values
+  df_explained_dev_i$Non_explained_deviance_log <- df_explained_dev_i$Non_explained_deviance_log - 
+                                                   min(df_explained_dev_i$Non_explained_deviance_log)
+  
+  ## Linear scale plot
+  plot(df_explained_dev_i$N_groups,
+       df_explained_dev_i$Non_explained_deviance,
+       bty = 'n', ylim = c(0, 1),
+       xaxt = 'n', yaxt = 'n', pch = 16, 
+       main = paste('Linear scale DENV', i), cex = 0.5,
+       ylab = 'Non-explained deviance (%)', xlab = 'Number of groups')
+  axis(1, lwd = 0.5, tck = -0.02)
+  axis(2, las = 2, at = seq(0, 1, 0.1), labels = seq(0, 1, 0.1) * 100, lwd = 0.5, tck = -0.02)
+  abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
+  
+  ## Log scale plot
+  plot(df_explained_dev_i$N_groups,
+       df_explained_dev_i$Non_explained_deviance,
+       log = 'y',
+       ylim = c(0.01, 1),
+       bty = 'n',
+       xaxt = 'n', yaxt = 'n', pch = 16, 
+       main = paste('Log scale DENV', i), cex = 0.5,
+       ylab = 'Non-explained deviance (%) - log scale', xlab = 'Number of groups')
+  axis(1, lwd = 0.5, tck = -0.02)
+  axis(2, las = 2, 
+       at = c(0.01, 0.1, 0.25, 0.5, 1),
+       labels = c(0.01, 0.1, 0.25, 0.5, 1) * 100, 
+       lwd = 0.5, tck = -0.02)
+  abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
+  
+  dev.off()
+}
+
+
+```
+
+Optimize the number of groups: set the minimum number of sequences per
+group to 30, with a minimum frequency of 1%.
+
+```{r minimum groups, eval = T}
+
+for (i in 4) {
+  ## Dynamically retrieve the relevant timed tree and dataset_with_nodes
+  timed_tree <- get(paste0('tree_DENV', i))
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  potential_splits <- get(paste0('potential_splits_', i))
+  
+  ## Call the merge.groups function
+  split <- merge.groups(
+    timed_tree = timed_tree,
+    metadata = dataset_with_nodes,
+    initial_splits = potential_splits$potential_splits,
+    group_count_threshold = 30,
+    group_freq_threshold = 0.01
+  )
+  
+  ## Dynamically assign the result to split_1, split_2, etc.
+  assign(paste0('split_', i), split)
+}
+
+```
+
+Label sequences with these new groups, and assign a color to each of
+them.
+
+```{r, eval = T}
+
+for (i in 4) {
+  ## Dynamically retrieve the dataset and split for the current iteration
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  split <- get(paste0('split_', i))
+  
+  ## Label sequences with new groups
+  dataset_with_nodes$groups <- as.factor(split$groups)
+  
+  ## Reorder labels by time of emergence
+  name_groups <- levels(dataset_with_nodes$groups)
+  time_groups_world <- NULL
+  for (j in 1:length(name_groups)) {
+    time_groups_world <- c(
+      time_groups_world, 
+      min(dataset_with_nodes$time[which(dataset_with_nodes$groups == name_groups[j] & 
+                                        dataset_with_nodes$is.node == 'no')])
+    )
+  }
+  
+  ## Update group levels
+  levels(dataset_with_nodes$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+  dataset_with_nodes$groups <- as.numeric(as.character(dataset_with_nodes$groups))
+  dataset_with_nodes$groups <- as.factor(dataset_with_nodes$groups)
+  
+  ## Update names in the split list
+  split$tip_and_nodes_groups <- match(split$tip_and_nodes_groups, order(time_groups_world, decreasing = TRUE))
+  names(split$tip_and_nodes_groups) <- 1:length(split$tip_and_nodes_groups)
+  split$groups <- as.factor(split$groups)
+  levels(split$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+  split$groups <- as.numeric(as.character(split$groups))
+  
+  ## Choose color palette
+  n_groups <- length(name_groups)
+  colors_groups <- met.brewer(name = "Cross", n = n_groups, type = "continuous")
+  
+  ## Color each group
+  dataset_with_nodes$group_color <- dataset_with_nodes$groups
+  levels(dataset_with_nodes$group_color) <- colors_groups
+  dataset_with_nodes$group_color <- as.character(dataset_with_nodes$group_color)
+  
+  ## Dynamically save group names and colors for this iteration
+  assign(paste0('name_groups_', i), name_groups)
+  assign(paste0('colors_groups_', i), colors_groups)
+  
+  ## Save the updated variables dynamically
+  assign(paste0('dataset_with_nodes_', i), dataset_with_nodes)
+  assign(paste0('split_', i), split)
+  assign(paste0('colors_groups_', i), colors_groups)
+}
+
+
+
+```
