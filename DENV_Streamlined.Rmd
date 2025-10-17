@@ -412,9 +412,6 @@ for (d in 1:4) {
   # Parse YEAR and CLADE 
   years  <- suppressWarnings(as.numeric(stringr::word(nm, 1, sep = stringr::fixed("_"))))
   clades <- stringr::word(nm, 3, sep = stringr::fixed("_"))
-  
-  #old code
-  sapply(names_seqs_3, function(x) str_split(x, pattern = '_')[[1]][3])
 
   assign(sprintf("times_seqs_%d", d), years)
   assign(sprintf("clades_seqs_%d", d), clades)
