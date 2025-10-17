@@ -467,6 +467,9 @@ test_node_gam = function(i, metadata_sub, metadata_sub_rownames,
 #' @param weighting_transformation NULL, inv_freq, inv_sqrt, or inv_log: Type of weighting to use.
 #' @param k_smooth Number of knots for the splines
 #' @param plot_screening TRUE or FALSE, to plot the discovered dynamics as soon as they're found
+#' @param plot_gif TRUE or FALSE, to plot the all models as a gif as soon as they are found
+#' @param gif_output_dir Path to directory where to save gif
+#' @param gif_filename Name of gif file to be saves
 #' @param parallelize_code TRUE or FALSE, to parallelise code
 #' @param number_cores Integer, if parallelised, how many cores to use
 #' @param max_groups_found Integer, Maximum number of groups to find
@@ -489,11 +492,18 @@ find.groups.by.index.dynamics = function(timed_tree,
                                          weighting_transformation = c(NULL, 'inv_freq', 'inv_sqrt', 'inv_log'),
                                          k_smooth = 5,
                                          plot_screening = F,
+                                         plot_gif = FALSE,
+                                         gif_output_dir = "",
+                                         gif_filename  = "screening.gif",
                                          parallelize_code = F,
                                          number_cores = 2,
                                          max_groups_found = 100,
                                          keep_track = F,
                                          log_y = T){
+  
+  ## will hold recordedplot objects for gif
+  gif_frames_rec <- list()  
+  
   ## Store paths from root to all tips and nodes
   paths_root_to_all_nodes = path.root.to.all.nodes(timed_tree)
   
@@ -779,6 +789,11 @@ find.groups.by.index.dynamics = function(timed_tree,
             }else if(log_y == F){
               points(metadata_sub$time, predict(mods_tmp[[index]]$mod), pch = 16, cex = 0.5, col = colors)
             }
+            
+            ## capture the just-drawn plot for the GIF
+            if (plot_gif) {
+              gif_frames_rec[[length(gif_frames_rec) + 1]] <- grDevices::recordPlot()
+            }
           }
           
           ## Save best result
@@ -801,6 +816,46 @@ find.groups.by.index.dynamics = function(timed_tree,
     }
     w = w +1
   }
+  
+  gif_path <- NULL
+  if (plot_screening && plot_gif && length(gif_frames_rec) > 0) {
+    if (!dir.exists(gif_output_dir)) {
+      dir.create(gif_output_dir, recursive = TRUE, showWarnings = FALSE)
+    }
+    gif_path <- file.path(gif_output_dir, gif_filename)
+    
+    if (requireNamespace("magick", quietly = TRUE)) {
+      # Render recorded plots to images and animate
+      imgs <- lapply(gif_frames_rec, function(rp) {
+        mg <- magick::image_graph(width = 1000, height = 800, res = 144)
+        on.exit(grDevices::dev.off(), add = TRUE)
+        grDevices::replayPlot(rp)
+        mg
+      })
+      anim <- magick::image_animate(magick::image_join(imgs), fps = 1)
+      magick::image_write(anim, path = gif_path)
+      print(anim)  # shows in RStudio Viewer too
+    } else if (requireNamespace("gifski", quietly = TRUE)) {
+      # Fallback: replay each frame to temporary PNGs, then stitch with gifski
+      tmpdir <- file.path(tempdir(), "gif_frames")
+      dir.create(tmpdir, showWarnings = FALSE)
+      png_files <- character(length(gif_frames_rec))
+      for (i in seq_along(gif_frames_rec)) {
+        f <- file.path(tmpdir, sprintf("frame_%04d.png", i))
+        grDevices::png(f, width = 1000, height = 800, res = 144,
+                       type = if (capabilities("cairo")) "cairo" else getOption("bitmapType", "cairo"))
+        grDevices::replayPlot(gif_frames_rec[[i]])
+        grDevices::dev.off()
+        png_files[i] <- f
+      }
+      gifski::gifski(png_files = png_files, gif_file = gif_path, delay = 1/gif_fps, width = 1000, height = 800)
+      # Optional preview in Viewer:
+      if (requireNamespace("magick", quietly = TRUE)) print(magick::image_read(gif_path))
+    } else {
+      message("Install either {magick} or {gifski} to create the GIF.")
+    }
+  }
+  
   if(keep_track == F){
     return('potential_splits' =  as.numeric(nodes_recorded))
   }else{
@@ -814,7 +869,13 @@ find.groups.by.index.dynamics = function(timed_tree,
                 'best_groups' = best_groups,
                 'best_nodes_names' = best_nodes_names))
   }
+  
+  out$gif_path <- gif_path
+  return(out)
+  
 }
+
+
 
 #' Sub function to ouput a fit, for a selected number of nodes
 compute_fit_for_node_set = function(timed_tree, 
