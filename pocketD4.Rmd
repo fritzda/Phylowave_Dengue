@@ -527,7 +527,7 @@ min_stepwise_AIC_threshold = 0
 max_stepwise_AIC_threshold = 7
 weight_by_time = 0.1
 weighting_transformation = c('inv_sqrt')
-k_smooth = -1
+k_smooth = -1 # smooting term for basis functions, -1 allows mgcv to set the default (usually 10)
 plot_screening = T
 parallelize_code = T
 number_cores = 8
@@ -740,6 +740,14 @@ mgcv::concurvity(ps_looseparams_4[["best_mod"]][[1]], full=TRUE)
 mgcv::concurvity(ps_looseparams_4[["best_mod"]][[1]], full=FALSE)
 plot(ps_looseparams_4[["best_mod"]][[1]], pages=1, shade=TRUE) 
 
+
+mgcv::k.check(ps_looseparams_4[["best_mod"]][[5]])
+mgcv::gam.check(ps_looseparams_4[["best_mod"]][[5]])
+mgcv::concurvity(ps_looseparams_4[["best_mod"]][[5]], full=TRUE)
+mgcv::concurvity(ps_looseparams_4[["best_mod"]][[5]], full=FALSE)
+plot(ps_looseparams_4[["best_mod"]][[1]], pages=1, shade=TRUE)
+
+
 mgcv::gam.check(ps_looseparams_4[["best_mod"]][[10]])
 mgcv::concurvity(ps_looseparams_4[["best_mod"]][[10]], full=TRUE)
  mgcv::concurvity(ps_looseparams_4[["best_mod"]][[10]], full=FALSE)
@@ -865,6 +873,10 @@ ggsave("bic_by_step_DENV4.png", p3, width = 6, height = 4, dpi = 300)
 ggsave("AIC_BIC_devexp_by_step_DENV4.png", p5, width = 6, height = 4, dpi = 300)
 
 ```
+
+```{r param grid}
+
+
 
 Optimize the number of groups: set the minimum number of sequences per
 group to 30, with a minimum frequency of 1%.
