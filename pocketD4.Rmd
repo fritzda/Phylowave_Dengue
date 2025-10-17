@@ -513,10 +513,26 @@ per group (*group_count_threshold*) or a minimum frequency of each group
 
 ##Parameters for the detection:
 
+Threshold not support: Max lineages is the same as number of lineages. Idea is restrict search space to certain level. Trying to restrict space to only well supported nodes. Each node has support value: 1. bootstrap/posterior (similar to Tb tree) support comes from data Creates sparsing issues in viruses that don't change much. 2. Proxy of how many mutations ahead of branch. If two nodes are separated by a short amount of time then the hypothesis that both nodes are distinct is less likely. Uses branch lenght between nodes. Only permit nodes that are at least 1 mutation apart. Length must be how long it takes for 1 mutation.
+
+
+Using time_window_initial + increment: sometimes helpful if wanting to look at newer lineages. But elbow plots are harder to interpret as depeneding on time params. Not recommended.  
+
+min_descendants_per_tested_node: only considering nodes with n tip and node descendents. A filter or partition of the tree. 
+
+Index dynamics are made of many splines (each with a k), p values for the spline need to better explain dynamics. k is the number of knots 
+
+
+How many lineages to choose is a practical question not something that is easy to ground in math. Elbow plot analysis is basically arbitrary. First elbow is the known dynamics, the second elbow is more exploratory. Stopping at the first linear point on horizontal line. 
+
+Weight by time: Seqiences are a time series, this compensates for some times where there are no sequences. Thus the model is trying to overexplain the densely time sampled variants. Penalty for higher samples in higher sampled times. Weight by time is the bucket/slice of time in years. 
+weighting_transformation: how the penalty is applied. Can try all of these but can't really compare between compare since AIC and BIC are poor measure of GAM comparison.  
+
+
 ```{r model params, eval =TRUE}
-threshold_node_support = 1/(29903*0.00081)  #Changed from 1/(29903*0.00081) this is likely SARS bp num times the sustituiton rate? 
-time_window_initial = 2030 #last sequence is in 2015, okay to set at 2030
-max_time_window_increment = 100 #Why is this 100 years 
+threshold_node_support = 1/(11000*7.6e-4)  #Changed from 1/(29903*0.00081) this is likely SARS bp num times the substitution rate? 
+time_window_initial = 2030 #last sequence is in 2015, okay to set at 2030. Just number that consider whole tree. 
+max_time_window_increment = 100 #Why is this 100 years? Not being used if window_intial is in the future. 
 min_time_window_increment = 0.25 #years
 min_descendants_per_tested_node = 30 #Changed from 30
 min_group_size = 30 #Changed from 30
@@ -525,8 +541,8 @@ min_stepwise_deviance_explained_threshold = 0
 max_stepwise_deviance_explained_threshold = 0.005
 min_stepwise_AIC_threshold = 0
 max_stepwise_AIC_threshold = 7
-weight_by_time = 0.1
-weighting_transformation = c('inv_sqrt')
+weight_by_time = 0.1 #in years and shows the bins of time, consider increasing for dengue
+weighting_transformation = c('inv_sqrt') 
 k_smooth = -1 # smooting term for basis functions, -1 allows mgcv to set the default (usually 10)
 plot_screening = T
 parallelize_code = T
@@ -625,6 +641,30 @@ attr(ps_smallwindow_4, "params")
 [1] "No better fit found"
 
 
+
+
+
+```{r}
+library(lattice)
+b0 <- 10
+b1 <- .5
+b2 <- .3
+g <- expand.grid(x = 1:20, y = 1:20)
+g$z <- b0 + b1*g$x + b2*g$y
+ 
+png(file="example%03d.png", width=300, heigh=300)
+  for (i in seq(0, 350 , 10)){
+    print(wireframe(z ~ x * y, data = g,
+              screen = list(z = i, x = -60)))
+  }
+dev.off()
+ 
+# converting .png file in .gif using ImageMagick
+system("/opt/local/bin/convert -delay 40 *.png example_2_reduced.gif")
+ 
+# Remove .png file
+file.remove(list.files(pattern=".png"))
+```
 
 
 ```{r large timewindow}
@@ -874,12 +914,10 @@ ggsave("AIC_BIC_devexp_by_step_DENV4.png", p5, width = 6, height = 4, dpi = 300)
 
 ```
 
-```{r param grid}
-
-
-
 Optimize the number of groups: set the minimum number of sequences per
 group to 30, with a minimum frequency of 1%.
+
+The idea of merging groups functions is to merge small lineages into bigger ones and to enforce the minimum frequency and merging that with geneticially similar groups. Bascially to change the numbers of groups without rerunning the model. Fitting logistic model on infrequent lineages is not super relevant 
 
 ```{r minimum groups, eval = T}
 
@@ -895,7 +933,7 @@ for (i in 4) {
     metadata = dataset_with_nodes,
     initial_splits = potential_splits$potential_splits,
     group_count_threshold = 30,
-    group_freq_threshold = 0.01
+    group_freq_threshold = 0.01 
   )
   
   ## Dynamically assign the result to split_1, split_2, etc.
