@@ -918,6 +918,71 @@ ggsave("AIC_BIC_devexp_by_step_DENV4.png", p5, width = 6, height = 4, dpi = 300)
 
 ```
 
+## Reasonable params 
+```{r adjusting params to reasonable values}
+start_time = Sys.time()
+ps_reasonableparams_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
+                                                 metadata = dataset_with_nodes_4,
+                                                 node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                                                                            tree_DENV4$edge[,2])],
+                                                 # Time it takes to have a single denv mut. Nodes must be at least this far apart
+                                                 threshold_node_support = 1/(11000*7.6e-4), 
+                                                 time_window_initial = 2030, # Consider the whole tree, don't increment the window
+                                                 time_window_increment = 100, # Not used since whole tree is being considered
+                                                 min_descendants_per_tested_node = 10,
+                                                 min_group_size = 10,
+                                                 p_value_smooth = 0.05, # default is 0.05 but need to increase to allow more smooth
+                                                 stepwise_deviance_explained_threshold = 0,
+                                                 stepwise_AIC_threshold = 0, # AIC is poor comparison of GAMs, kept at inactive
+                                                 # weight_by_time: Time (in years) to consider density penalty buckets, 
+                                                 # if set too low can poorly fit early data
+                                                 weight_by_time = 10, 
+                                                 weighting_transformation = c('inv_sqrt'),
+                                                 k_smooth = -1,
+                                                 parallelize_code = T,
+                                                 number_cores = 8, 
+                                                 plot_screening = T,
+                                                 plot_gif = T,
+                                                 gif_output_dir = "3_Output_Figures/3_5_DENV/3_5_99_Supplement",
+                                                 gif_filename  = "screening_reasonable_params_wbt10.gif",
+                                                 max_groups_found =  30,
+                                                 keep_track = T)
+end_time = Sys.time()
+print(end_time - start_time)
+
+
+attr(ps_reasonableparams_4, "params") <- list(
+  head_note = "Run to force more lineages with reasonable params",
+  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                              tree_DENV4$edge[,2])],
+  threshold_node_support = 1/(11000*7.6e-4), 
+  time_window_initial = 2030, # Consider the whole tree, don't increment the window
+  time_window_increment = 100, # Not used since whole tree is being considered
+  min_descendants_per_tested_node = 10,
+  min_group_size = 10,
+  p_value_smooth = 0.05,
+  stepwise_deviance_explained_threshold = 0,
+  stepwise_AIC_threshold = 0, # AIC is poor comparison of GAMs, kept at inactive
+  weight_by_time = 10, # Time (in years) to consider density penalty buckets 
+  weighting_transformation = c('inv_sqrt'),
+  k_smooth = -1,
+  parallelize_code = T,
+  number_cores = 8, 
+  plot_screening = T,
+  plot_gif = T,
+  gif_output_dir = "3_Output_Figures/3_5_DENV/3_5_99_Supplement",
+  gif_filename  = "screening_reasonable_params_wbt10.gif",
+  max_groups_found =  30,
+  keep_track = T
+)
+attr(ps_reasonableparams_4, "params")
+
+
+```
+
+
+
+
 Optimize the number of groups: set the minimum number of sequences per
 group to 30, with a minimum frequency of 1%.
 
