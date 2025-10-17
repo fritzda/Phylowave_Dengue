@@ -723,6 +723,7 @@ attr(ps_smallwindow_4, "params")
 
 ```{r more loose params}
 
+
 start_time = Sys.time()
 ps_looseparams_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  metadata = dataset_with_nodes_4,
@@ -742,6 +743,9 @@ ps_looseparams_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  parallelize_code = T,
                                                  number_cores = 8, 
                                                  plot_screening = T,
+                                                 plot_gif = T,
+                                                 gif_output_dir = "3_Output_Figures/3_5_DENV/3_5_99_Supplement",
+                                                 gif_filename  = "screening_loose_params.gif",
                                                  max_groups_found =  30,
                                                  keep_track = T)
 end_time = Sys.time()
