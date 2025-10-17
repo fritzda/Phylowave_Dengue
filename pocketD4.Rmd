@@ -511,30 +511,30 @@ to refine these groups if needed, by setting a minimum number of nodes
 per group (*group_count_threshold*) or a minimum frequency of each group
 (*group_freq_threshold*).
 
-Parameters for the detection:
+##Parameters for the detection:
 
 ```{r model params, eval =TRUE}
-time_window_initial = 2030;
-time_window_increment = 100;
-p_value_smooth = 0.05
+threshold_node_support = 1/(29903*0.00081)  #Changed from 1/(29903*0.00081) this is likely SARS bp num times the sustituiton rate? 
+time_window_initial = 2030 #last sequence is in 2015, okay to set at 2030
+max_time_window_increment = 100 #Why is this 100 years 
+min_time_window_increment = 0.25 #years
+min_descendants_per_tested_node = 30 #Changed from 30
+min_group_size = 30 #Changed from 30
+p_value_smooth = 0.05 #formerly 0.05
+min_stepwise_deviance_explained_threshold = 0
+max_stepwise_deviance_explained_threshold = 0.005
+min_stepwise_AIC_threshold = 0
+max_stepwise_AIC_threshold = 7
 weight_by_time = 0.1
-k_smooth = -1
-threshold_node_support = 1/(29903*0.00081)
-plot_screening = F
-min_descendants_per_tested_node = 30
-min_group_size = 30
 weighting_transformation = c('inv_sqrt')
-
+k_smooth = -1
+plot_screening = T
 parallelize_code = T
 number_cores = 8
-
-max_stepwise_deviance_explained_threshold = 0
-
-# max_groups_found_4 = 2
 max_groups_found_default = 30
-stepwise_AIC_threshold = 0
-
 keep_track = T
+log_y = T
+
 ```
 To ‘force’ more lineages to be detected by phylowave, you have two options (and you can use both at the same time):
 - 1: change the lineages you’re proposing: if your current code restricts the lineages to have at least 100 tips+nodes, you could change this to 10. This will effectively allow the model to test smaller lineages. The parameters to change for this are ‘min_descendants_per_tested_node’, and also min_group_size’. You can also set the ‘threshold_node_support’ parameter to NULL, effectively not filtering node based on any support value.
@@ -542,32 +542,35 @@ To ‘force’ more lineages to be detected by phylowave, you have two options (
 
 #load in what you need to debug
 ```{r}
-potential_splits_4 <- read_rds("potential_splits_4.rds")
+# potential_splits_4 <- read_rds("potential_splits_4.rds")
 
 dataset_with_nodes_4 <- read_rds("dataset_with_nodes_4.rds")
 tree_DENV4 <- read_rds("tree_DENV4.rds")
-split_4 <- read_rds("split_4.rds")
+n_seq_4 <- read_rds("n_seq_4.rds")
+# split_4 <- read_rds("split_4.rds")
 
 ```
 
 
+#Potential Splits 
+
 DENV4 Run the detection function (this steps takes approximately \<10
 min on 2 cores):
 
-```{r potential splits 4, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
+```{r smalltimewindow, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
-potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
+ps_smallwindow_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  metadata = dataset_with_nodes_4,
                                                  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
                                                                                             tree_DENV4$edge[,2])],
                                                  threshold_node_support = threshold_node_support,
                                                  time_window_initial = time_window_initial,
-                                                 time_window_increment = time_window_increment,
+                                                 time_window_increment = min_time_window_increment,
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
                                                  min_group_size = min_group_size,
                                                  p_value_smooth = p_value_smooth,
-                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
-                                                 stepwise_AIC_threshold = stepwise_AIC_threshold,
+                                                 stepwise_deviance_explained_threshold = min_stepwise_deviance_explained_threshold,
+                                                 stepwise_AIC_threshold = min_stepwise_AIC_threshold,
                                                  weight_by_time = weight_by_time,
                                                  weighting_transformation = weighting_transformation,
                                                  k_smooth = k_smooth,
@@ -578,6 +581,32 @@ potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
+
+
+attr(ps_smallwindow_4, "params") <- list(
+  head_note = "Run keeping all previous params the same but using smaller runitme windows",
+  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                              tree_DENV4$edge[,2])],
+  time_window_initial = time_window_initial,
+  time_window_increment = min_time_window_increment,
+  min_descendants_per_tested_node = min_descendants_per_tested_node,
+  min_group_size = min_group_size,
+  p_value_smooth = p_value_smooth,
+  stepwise_deviance_explained_threshold = min_stepwise_deviance_explained_threshold,
+  stepwise_AIC_threshold = min_stepwise_AIC_threshold,
+  weight_by_time = weight_by_time,
+  weighting_transformation = weighting_transformation,
+  k_smooth = k_smooth,
+  parallelize_code = parallelize_code,
+  number_cores = number_cores,
+  max_groups_found = max_groups_found_default,
+  keep_track = keep_track
+)
+
+attr(ps_smallwindow_4, "params")
+
+
+
 ```
 1] "Considering tree up to 2030-------------------------->"
 [1] "Testing 40 nodes"
@@ -597,17 +626,140 @@ print(end_time - start_time)
 
 
 
+
+```{r large timewindow}
+
+#Large time increment 
+start_time = Sys.time()
+ps_largewindow_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
+                                                 metadata = dataset_with_nodes_4,
+                                                 node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                                                                            tree_DENV4$edge[,2])],
+                                                 threshold_node_support = threshold_node_support,
+                                                 time_window_initial = time_window_initial,
+                                                 time_window_increment = max_time_window_increment,
+                                                 min_descendants_per_tested_node = min_descendants_per_tested_node,
+                                                 min_group_size = min_group_size,
+                                                 p_value_smooth = p_value_smooth,
+                                                 stepwise_deviance_explained_threshold = min_stepwise_deviance_explained_threshold,
+                                                 stepwise_AIC_threshold = min_stepwise_AIC_threshold,
+                                                 weight_by_time = weight_by_time,
+                                                 weighting_transformation = weighting_transformation,
+                                                 k_smooth = k_smooth,
+                                                 parallelize_code = parallelize_code,
+                                                 number_cores = number_cores, 
+                                                 plot_screening = plot_screening,
+                                                 max_groups_found =  max_groups_found_default,
+                                                 keep_track = keep_track)
+end_time = Sys.time()
+print(end_time - start_time)
+
+
+attr(ps_largewindow_4, "params") <- list(
+  head_note = "Run keeping all previous params the same but using larger runitme windows",
+  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                              tree_DENV4$edge[,2])],
+  threshold_node_support = threshold_node_support,
+  time_window_initial = time_window_initial,
+  time_window_increment = max_time_window_increment,
+  min_descendants_per_tested_node = min_descendants_per_tested_node,
+  min_group_size = min_group_size,
+  p_value_smooth = p_value_smooth,
+  stepwise_deviance_explained_threshold = min_stepwise_deviance_explained_threshold,
+  stepwise_AIC_threshold = min_stepwise_AIC_threshold,
+  weight_by_time = weight_by_time,
+  weighting_transformation = weighting_transformation,
+  k_smooth = k_smooth,
+  parallelize_code = parallelize_code,
+  number_cores = number_cores, 
+  plot_screening = plot_screening,
+  max_groups_found =  max_groups_found_default,
+  keep_track = keep_track
+)
+attr(ps_smallwindow_4, "params")
+```
+
+
+
+```{r more loose params}
+
+start_time = Sys.time()
+ps_looseparams_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
+                                                 metadata = dataset_with_nodes_4,
+                                                 node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                                                                            tree_DENV4$edge[,2])],
+                                                 threshold_node_support = NULL,
+                                                 time_window_initial = 2030,
+                                                 time_window_increment = 100,
+                                                 min_descendants_per_tested_node = 10,
+                                                 min_group_size = 10,
+                                                 p_value_smooth = 1,
+                                                 stepwise_deviance_explained_threshold = 0,
+                                                 stepwise_AIC_threshold = 0,
+                                                 weight_by_time = 0.1,
+                                                 weighting_transformation = c('inv_sqrt'),
+                                                 k_smooth = -1,
+                                                 parallelize_code = T,
+                                                 number_cores = 8, 
+                                                 plot_screening = T,
+                                                 max_groups_found =  30,
+                                                 keep_track = T)
+end_time = Sys.time()
+print(end_time - start_time)
+
+
+attr(ps_looseparams_4, "params") <- list(
+  head_note = "Run to force more lineages",
+  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                              tree_DENV4$edge[,2])],
+  threshold_node_support = NULL,
+  time_window_initial = 2030,
+  time_window_increment = 100,
+  min_descendants_per_tested_node = 10,
+  min_group_size = 10,
+  p_value_smooth = 1,
+  stepwise_deviance_explained_threshold = 0,
+  stepwise_AIC_threshold = 0,
+  weight_by_time = 0.1,
+  weighting_transformation = c('inv_sqrt'),
+  k_smooth = -1,
+  parallelize_code = T,
+  number_cores = 8, 
+  plot_screening = T,
+  max_groups_found =  30,
+  keep_track = T
+)
+attr(ps_looseparams_4, "params")
+
+plot.gam(ps_looseparams_4[["best_mod"]][[1]])
+
+
+ps_looseparams_4$best_summary
+mgcv::gam.check(ps_looseparams_4[["best_mod"]][[1]])
+mgcv::concurvity(ps_looseparams_4[["best_mod"]][[1]], full=TRUE)
+mgcv::concurvity(ps_looseparams_4[["best_mod"]][[1]], full=FALSE)
+plot(ps_looseparams_4[["best_mod"]][[1]], pages=1, shade=TRUE) 
+
+mgcv::gam.check(ps_looseparams_4[["best_mod"]][[10]])
+mgcv::concurvity(ps_looseparams_4[["best_mod"]][[10]], full=TRUE)
+ mgcv::concurvity(ps_looseparams_4[["best_mod"]][[10]], full=FALSE)
+plot(ps_looseparams_4[["best_mod"]][[10]], shade = TRUE)   
+
+
+```
+
+
 ```{r linlog group plot}
-max_groups_found_line_4 = 2
+max_groups_found_line_4 = 3
 
 for (i in 4) {
   
- svglite(sprintf("3_Output_Figures/3_5_DENV/3_5_99_Supplement/DENV_%d_linlog.svg", i), width = 12, height = 6)
+ svglite(sprintf("DENV_%d_linlog.svg", i), width = 12, height = 6)
   par(mfrow = c(1, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5),
       mgp = c(0.75, 0.25, 0), cex.axis = 0.5, cex.lab = 0.5,
       cex.main = 0.7, cex.sub = 0.5)
   ## Dynamically retrieve the potential splits for the current group
-  potential_splits <- get(paste0('potential_splits_', i))
+  potential_splits <- get(paste0('ps_looseparams_', i))
   max_groups_found_line_i <- get(paste0('max_groups_found_line_', i))
   
   ## Dynamically create or update the data frame for the current group
@@ -649,8 +801,68 @@ for (i in 4) {
   abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
   
   dev.off()
-}
+} 
 
+```
+
+
+#TODO: ASK WHY NOT MIN AIC/BIC
+
+```{r}
+mods <- ps_looseparams_4[["best_mod"]]
+
+df <- tibble(
+  step = seq_along(mods),
+  AIC  = sapply(mods, AIC),
+  BIC = sapply(mods, BIC),
+  dev  = sapply(mods, function(m) summary(m)$dev.expl)
+)
+
+kmin <- df$step[which.min(df$AIC)]
+kmin_BIC <- df$step[which.min(df$BIC)]
+
+p1 <- ggplot(df, aes(step, AIC)) +
+  geom_line() + geom_point() +
+  geom_vline(xintercept = kmin, linetype = 2, color = "purple") +
+  labs(x = "Number of groups (step index)", y = "AIC",
+       title = "Model AIC across tested splits",
+       subtitle = sprintf("Min AIC at k=%d (AIC=%.1f)", kmin, df$AIC[kmin]))
+
+p2 <- ggplot(df, aes(step, dev * 100)) +
+  geom_line() + geom_point() +
+  labs(x = "Number of groups (step index)", y = "Deviance explained (%)",
+       title = "Deviance explained across tested splits") 
+
+p3 <- ggplot(df, aes(step, BIC)) +
+  geom_line() + geom_point() +
+  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "purple") +
+  labs(x = "Number of groups (step index)", y = "BIC",
+       title = "Model BIC across tested splits",
+       subtitle = sprintf("Min BIC at k=%d (BIC=%.1f)", kmin_BIC, df$BIC[kmin_BIC])) 
+
+p4 <- ggplot(df, aes(step)) +
+  geom_line(aes(y = AIC), colour = "#012169FF") + geom_point(aes(y = AIC), colour = "#012169FF") +
+  geom_line(aes(y = BIC), colour = "#C8102EFF") + geom_point(aes(y = BIC), colour = "#C8102EFF") +
+  geom_vline(xintercept = kmin, linetype = 2, color = "#C8102Eaa") +
+  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#012169aa") +
+  labs(x = "Number of groups (step index)", y = "Value",
+       title = "Model AIC & BIC across tested splits",
+       subtitle = glue::glue("Min AIC at k={kmin} (AIC={round(df$AIC[kmin],1)})\n",
+                      "Min BIC at k={kmin_BIC} (BIC={round(df$BIC[kmin_BIC],1)})") )
+
+
+
+
+
+p5 <- p4 + p2
+
+print(p1); print(p2); print(p3); print(p4); print(p5)
+
+# save if you want
+ggsave("aic_by_step_DENV4.png", p1, width = 6, height = 4, dpi = 300)
+ggsave("devexp_by_step_DENV4.png", p2, width = 6, height = 4, dpi = 300)
+ggsave("bic_by_step_DENV4.png", p3, width = 6, height = 4, dpi = 300)
+ggsave("AIC_BIC_devexp_by_step_DENV4.png", p5, width = 6, height = 4, dpi = 300)
 
 ```
 
