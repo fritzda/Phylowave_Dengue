@@ -513,7 +513,7 @@ per group (*group_count_threshold*) or a minimum frequency of each group
 
 ##Parameters for the detection:
 
-Threshold not support: Max lineages is the same as number of lineages. Idea is restrict search space to certain level. Trying to restrict space to only well supported nodes. Each node has support value: 1. bootstrap/posterior (similar to Tb tree) support comes from data Creates sparsing issues in viruses that don't change much. 2. Proxy of how many mutations ahead of branch. If two nodes are separated by a short amount of time then the hypothesis that both nodes are distinct is less likely. Uses branch lenght between nodes. Only permit nodes that are at least 1 mutation apart. Length must be how long it takes for 1 mutation.
+Threshold node support: Max lineages is the same as number of lineages. Idea is restrict search space to certain level. Trying to restrict space to only well supported nodes. Each node has support value: 1. bootstrap/posterior (similar to Tb tree) support comes from data Creates sparsing issues in viruses that don't change much. 2. Proxy of how many mutations ahead of branch. If two nodes are separated by a short amount of time then the hypothesis that both nodes are distinct is less likely. Uses branch lenght between nodes. Only permit nodes that are at least 1 mutation apart. Length must be how long it takes for 1 mutation.
 
 
 Using time_window_initial + increment: sometimes helpful if wanting to look at newer lineages. But elbow plots are harder to interpret as depeneding on time params. Not recommended.  
@@ -642,29 +642,6 @@ attr(ps_smallwindow_4, "params")
 
 
 
-
-
-```{r}
-library(lattice)
-b0 <- 10
-b1 <- .5
-b2 <- .3
-g <- expand.grid(x = 1:20, y = 1:20)
-g$z <- b0 + b1*g$x + b2*g$y
- 
-png(file="example%03d.png", width=300, heigh=300)
-  for (i in seq(0, 350 , 10)){
-    print(wireframe(z ~ x * y, data = g,
-              screen = list(z = i, x = -60)))
-  }
-dev.off()
- 
-# converting .png file in .gif using ImageMagick
-system("/opt/local/bin/convert -delay 40 *.png example_2_reduced.gif")
- 
-# Remove .png file
-file.remove(list.files(pattern=".png"))
-```
 
 
 ```{r large timewindow}
@@ -858,7 +835,6 @@ for (i in 4) {
 ```
 
 
-#TODO: ASK WHY NOT MIN AIC/BIC
 
 ```{r}
 mods <- ps_looseparams_4[["best_mod"]]
