@@ -1054,6 +1054,20 @@ To run the lineage detection algorithm, use the function
     *stepwise_deviance_explained_threshold*, *stepwise_AIC_threshold*,
     *k_smooth*, *parallelize_code*, *number_cores*, *plot_screening*,
     *keep_track* and *log_y*.
+    
+#### More notes on Parameters for the detection:
+
+Threshold node support: Max lineages is the same as number of lineages. Idea is restrict search space to certain level. Trying to restrict space to only well supported nodes. Each node has support value: 1. bootstrap/posterior (similar to Tb tree) support comes from data Creates sparsing issues in viruses that don't change much. 2. Proxy of how many mutations ahead of branch. If two nodes are separated by a short amount of time then the hypothesis that both nodes are distinct is less likely. Uses branch lenght between nodes. Only permit nodes that are at least 1 mutation apart. Length must be how long it takes for 1 mutation.
+
+
+Using time_window_initial + increment: sometimes helpful if wanting to look at newer lineages. But elbow plots are harder to interpret as depeneding on time params. Not recommended.  
+
+min_descendants_per_tested_node: only considering nodes with n tip and node descendents. A filter or partition of the tree. 
+
+Index dynamics are made of many splines (each with a k), p values for the spline need to better explain dynamics. k is the number of knots 
+
+Weight by time: Seqiences are a time series, this compensates for some times where there are no sequences. Thus the model is trying to overexplain the densely time sampled variants. Penalty for higher samples in higher sampled times. Weight by time is the bucket/slice of time in years. 
+weighting_transformation: how the penalty is applied. Can try all of these but can't really compare between compare since AIC and BIC are poor measure of GAM comparison.  
 
 The function outputs multiple elements in a list:
 
@@ -1087,32 +1101,45 @@ to refine these groups if needed, by setting a minimum number of nodes
 per group (*group_count_threshold*) or a minimum frequency of each group
 (*group_freq_threshold*).
 
+
+
+
 Parameters for the detection:
 
 ```{r model params, eval =TRUE}
-time_window_initial = 2030;
-time_window_increment = 100;
-p_value_smooth = 0.05
-weight_by_time = 0.1
-k_smooth = -1
-threshold_node_support = 1/(29903*0.00081)
-plot_screening = F
-min_descendants_per_tested_node = 30
-min_group_size = 30
+# Time it takes to have a single denv mut. Nodes must be at least this far apart
+threshold_node_support = 1/(mutation_rate*genome_length) 
+time_window_initial = 2030 # Consider the whole tree, don't increment the window
+time_window_increment = 100 # Not used since whole tree is being considered
+min_descendants_per_tested_node = 10
+min_group_size = 10
+p_value_smooth = 0.05 # default is 0.05 but often need to increase to allow more smooth
+stepwise_deviance_explained_threshold = 0
+stepwise_AIC_threshold = 0 # AIC is poor comparison of GAMs, kept at inactive
+# weight_by_time: Time (in years) to consider density penalty buckets, 
+# if set too low can poorly fit early data
+weight_by_time = 10
 weighting_transformation = c('inv_sqrt')
-
+k_smooth = -1 #Allows model to pick, usually model sets at 10 
 parallelize_code = T
 number_cores = 8
+plot_screening = T
+plot_gif = T
+gif_output_dir = "3_Output_Figures/3_5_DENV/3_5_99_Supplement"
+max_groups_found_default =  30
+keep_track = T
 
-max_stepwise_deviance_explained_threshold = 0
 # max_groups_found_3 = 6
 # max_groups_found_2 = 3
 # max_groups_found_1 = 8
 # max_groups_found_4 = 2
-max_groups_found_default = 30
-stepwise_AIC_threshold = 0
 
-keep_track = T
+
+
+
+
+
+
 ```
 
 Go back and set the max_groups_found to a reasonable value after doing
@@ -1123,7 +1150,7 @@ min on 2 cores):
 
 ```{r potential splits 3, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
-potential_splits_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
+potential_splits_reasonable_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
                                                  metadata = dataset_with_nodes_3,
                                                  node_support = tree_DENV3$edge.length[match((n_seq_3+1):(2*n_seq_3-1),
                                                                                             tree_DENV3$edge[,2])],
@@ -1133,7 +1160,7 @@ potential_splits_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
                                                  min_group_size = min_group_size,
                                                  p_value_smooth = p_value_smooth,
-                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
                                                  stepwise_AIC_threshold = stepwise_AIC_threshold,
                                                  weight_by_time = weight_by_time,
                                                  weighting_transformation = weighting_transformation,
@@ -1141,11 +1168,43 @@ potential_splits_3 = find.groups.by.index.dynamics(timed_tree = tree_DENV3,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
+                                                 plot_gif = plot_gif,
+                                                 gif_output_dir = gif_output_dir,
+                                                 gif_filename = "reasonable_params_maxgroups_D3.gif",
                                                  max_groups_found = max_groups_found_default, 
                                                  # max_groups_found = max_groups_found_3, 
-                                                 keep_track = keep_track)
+                                                 keep_track = keep_track
+                                                 )
+
 end_time = Sys.time()
 print(end_time - start_time)
+
+
+attr(potential_splits_reasonable_3, "params") <- list(
+  head_note = "Run to with reasonable params on D3 for max lineages",
+  node_support = tree_DENV3$edge.length[match((n_seq_3+1):(2*n_seq_3-1),
+                                              tree_DENV3$edge[,2])],
+  threshold_node_support = threshold_node_support,
+  time_window_initial = time_window_initial,
+  time_window_increment = time_window_increment,
+  min_descendants_per_tested_node = min_descendants_per_tested_node,
+  min_group_size = min_group_size,
+  p_value_smooth = p_value_smooth,
+  stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
+  stepwise_AIC_threshold = stepwise_AIC_threshold,
+  weight_by_time = weight_by_time,
+  weighting_transformation = weighting_transformation,
+  k_smooth = k_smooth,
+  parallelize_code = parallelize_code,
+  number_cores = number_cores, 
+  plot_screening = plot_screening,
+  plot_gif = plot_gif,
+  gif_output_dir = gif_output_dir,
+  gif_filename = "reasonable_params_maxgroups_D3.gif",
+  max_groups_found = max_groups_found_default, 
+  # max_groups_found = max_groups_found_3, 
+  keep_track = keep_track
+)
 ```
 
 DENV2 Run the detection function (this steps takes approximately \<10
@@ -1153,7 +1212,7 @@ min on 2 cores):
 
 ```{r potential splits 2, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
-potential_splits_2 = find.groups.by.index.dynamics(timed_tree = tree_DENV2,
+potential_splits_reasonable_2 = find.groups.by.index.dynamics(timed_tree = tree_DENV2,
                                                  metadata = dataset_with_nodes_2,
                                                  node_support = tree_DENV2$edge.length[match((n_seq_2+1):(2*n_seq_2-1),
                                                                                             tree_DENV2$edge[,2])],
@@ -1171,10 +1230,39 @@ potential_splits_2 = find.groups.by.index.dynamics(timed_tree = tree_DENV2,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
+                                                 plot_gif = plot_gif,
+                                                 gif_output_dir = gif_output_dir,
+                                                 gif_filename = "reasonable_params_maxgroups_D2.gif",
                                                  max_groups_found =  max_groups_found_default, 
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
+
+
+attr(potential_splits_reasonable_2, "params") <- list(
+  head_note = "Run to with reasonable params on D2 for max lineages",
+  node_support = tree_DENV2$edge.length[match((n_seq_2+1):(2*n_seq_2-1),
+                                              tree_DENV2$edge[,2])],
+  threshold_node_support = threshold_node_support,
+  time_window_initial = time_window_initial,
+  time_window_increment = time_window_increment,
+  min_descendants_per_tested_node = min_descendants_per_tested_node,
+  min_group_size = min_group_size,
+  p_value_smooth = p_value_smooth,
+  stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+  stepwise_AIC_threshold = stepwise_AIC_threshold,
+  weight_by_time = weight_by_time,
+  weighting_transformation = weighting_transformation,
+  k_smooth = k_smooth,
+  parallelize_code = parallelize_code,
+  number_cores = number_cores, 
+  plot_screening = plot_screening,
+  plot_gif = plot_gif,
+  gif_output_dir = gif_output_dir,
+  gif_filename = "reasonable_params_maxgroups_D2.gif",
+  max_groups_found =  max_groups_found_default, 
+  keep_track = keep_track
+)
 ```
 
 DENV1 Run the detection function (this steps takes approximately \<10
@@ -1182,7 +1270,7 @@ min on 2 cores):
 
 ```{r potential splits 1, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
-potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
+potential_splits_reasonable_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
                                                  metadata = dataset_with_nodes_1,
                                                  node_support = tree_DENV1$edge.length[match((n_seq_1+1):(2*n_seq_1-1),
                                                                                             tree_DENV1$edge[,2])],
@@ -1200,10 +1288,38 @@ potential_splits_1 = find.groups.by.index.dynamics(timed_tree = tree_DENV1,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
-                                                 max_groups_found =  max_groups_found_default, 
+                                                 plot_gif = plot_gif,
+                                                 gif_output_dir = gif_output_dir,
+                                                 gif_filename = "reasonable_params_maxgroups_D1.gif",
+                                                 max_groups_found = max_groups_found_default, 
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
+
+attr(potential_splits_reasonable_1, "params") <- list(
+  head_note = "Run to with reasonable params on D1 for max lineages",
+  node_support = tree_DENV1$edge.length[match((n_seq_1+1):(2*n_seq_1-1),
+                                              tree_DENV1$edge[,2])],
+  threshold_node_support = threshold_node_support,
+  time_window_initial = time_window_initial,
+  time_window_increment = time_window_increment,
+  min_descendants_per_tested_node = min_descendants_per_tested_node,
+  min_group_size = min_group_size,
+  p_value_smooth = p_value_smooth,
+  stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+  stepwise_AIC_threshold = stepwise_AIC_threshold,
+  weight_by_time = weight_by_time,
+  weighting_transformation = weighting_transformation,
+  k_smooth = k_smooth,
+  parallelize_code = parallelize_code,
+  number_cores = number_cores, 
+  plot_screening = plot_screening,
+  plot_gif = plot_gif,
+  gif_output_dir = gif_output_dir,
+  gif_filename = "reasonable_params_maxgroups_D1.gif",
+  max_groups_found = max_groups_found_default, 
+  keep_track = keep_track
+)
 ```
 
 DENV4 Run the detection function (this steps takes approximately \<10
@@ -1211,7 +1327,7 @@ min on 2 cores):
 
 ```{r potential splits 4, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
-potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
+potential_splits_reasonable_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  metadata = dataset_with_nodes_4,
                                                  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
                                                                                             tree_DENV4$edge[,2])],
@@ -1229,21 +1345,58 @@ potential_splits_4 = find.groups.by.index.dynamics(timed_tree = tree_DENV4,
                                                  parallelize_code = parallelize_code,
                                                  number_cores = number_cores, 
                                                  plot_screening = plot_screening,
+                                                 plot_gif = plot_gif,
+                                                 gif_output_dir = gif_output_dir,
+                                                 gif_filename = "reasonable_params_maxgroups_D4.gif",
                                                  max_groups_found =  max_groups_found_default,
                                                  keep_track = keep_track)
 end_time = Sys.time()
 print(end_time - start_time)
+
+attr(potential_splits_reasonable_4, "params") <- list(
+  head_note = "Run to with reasonable params on D4 for max lineages",
+  node_support = tree_DENV4$edge.length[match((n_seq_4+1):(2*n_seq_4-1),
+                                              tree_DENV4$edge[,2])],
+  threshold_node_support = threshold_node_support,
+  time_window_initial = time_window_initial,
+  time_window_increment = time_window_increment,
+  min_descendants_per_tested_node = min_descendants_per_tested_node,
+  min_group_size = min_group_size,
+  p_value_smooth = p_value_smooth,
+  stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+  stepwise_AIC_threshold = stepwise_AIC_threshold,
+  weight_by_time = weight_by_time,
+  weighting_transformation = weighting_transformation,
+  k_smooth = k_smooth,
+  parallelize_code = parallelize_code,
+  number_cores = number_cores, 
+  plot_screening = plot_screening,
+  plot_gif = plot_gif,
+  gif_output_dir = gif_output_dir,
+  gif_filename = "reasonable_params_maxgroups_D4.gif",
+  max_groups_found =  max_groups_found_default,
+  keep_track = keep_track
+)
 ```
 
-Saving the Potential Splits
+Saving the Potential Splits and treedata
 ```{r save splits, }
 
 
 for (d in 1:4){
   
-  potential_splits = get(sprintf("potential_splits_%d", d))
-  splits_file_name <- glue("4_Output_Data/Max_groups_potential_splits_DENV{d}_timescale{timescale}_wind{wind}_{st}.rds")
+  potential_splits <- get(sprintf("potential_splits_reasonable_%d", d))
+  splits_file_name <- glue("4_Output_Data/Max_groups_potential_splits_reasonable_DENV{d}_timescale{timescale}_wind{wind}_{st}.rds")
   write_rds(potential_splits, splits_file_name)
+
+  tree <- get(paste0('tree_DENV', d)) 
+  tree_file_name <- glue("4_Output_Data/tree_DENV{d}_{st}.rds")
+  write_rds(tree, tree_file_name)
+  
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+  ds_file_name <- glue("4_Output_Data/dataset_with_nodes_index_DENV{d}_{st}.rds")
+  write_rds(dataset_with_nodes, ds_file_name)
+  
 }
 
 ```
@@ -1283,6 +1436,12 @@ Look at the deviance explained by the models with different number of
 groups. Here for simplicity we directly chose max_groups_found_3 = 7. To
 decide on this many groups, we initially ran the algorithm up to 30
 groups (though it converged at 14).
+
+
+
+
+How many lineages to choose is a practical question not something that is easy to ground in math. Elbow plot analysis is basically arbitrary. First elbow is the known dynamics, the second elbow is more exploratory. Stopping at the first linear point on horizontal line. 
+
 
 ###TODO Why is D3 log less than 1 (log1 = 0) 
 
@@ -1345,6 +1504,78 @@ for (i in 1:4) {
 
 
 ```
+
+
+```{r AIC BIC plots}
+
+for (i in 1:4) {
+  
+  potential_splits <- get(paste0('potential_splits_', i))
+  mods <- potential_splits[["best_mod"]]
+  output_dir <- "3_Output_Figures/3_5_DENV/3_5_99_Supplement"
+
+df <- tibble(
+  step = seq_along(mods),
+  AIC  = sapply(mods, AIC),
+  BIC = sapply(mods, BIC),
+  dev  = sapply(mods, function(m) summary(m)$dev.expl)
+)
+
+kmin <- df$step[which.min(df$AIC)]
+kmin_BIC <- df$step[which.min(df$BIC)]
+
+p1 <- ggplot(df, aes(step, AIC)) +
+  geom_line() + geom_point() +
+  geom_vline(xintercept = kmin, linetype = 2, color = "#012169aa") +
+  labs(x = "Number of groups (step index)", y = "AIC",
+       title = "Model AIC across tested splits",
+       subtitle = sprintf("Min AIC at k=%d (AIC=%.1f)", kmin, df$AIC[kmin]))
+
+p2 <- ggplot(df, aes(step, dev * 100)) +
+  geom_line() + geom_point() +
+  labs(x = "Number of groups (step index)", y = "Deviance explained (%)",
+       title = "Deviance explained across tested splits") 
+
+p3 <- ggplot(df, aes(step, BIC)) +
+  geom_line() + geom_point() +
+  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#C8102Eaa") +
+  labs(x = "Number of groups (step index)", y = "BIC",
+       title = "Model BIC across tested splits",
+       subtitle = sprintf("Min BIC at k=%d (BIC=%.1f)", kmin_BIC, df$BIC[kmin_BIC])) 
+
+p4 <- ggplot(df, aes(step)) +
+  geom_line(aes(y = AIC), colour = "#012169FF") + geom_point(aes(y = AIC), colour = "#012169FF") +
+  geom_line(aes(y = BIC), colour = "#C8102EFF") + geom_point(aes(y = BIC), colour = "#C8102EFF") +
+  geom_vline(xintercept = kmin, linetype = 2, color = "#C8102Eaa") +
+  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#012169aa") +
+  labs(x = "Number of groups (step index)", y = "Value",
+       title = "Model AIC & BIC across tested splits",
+       subtitle = glue::glue("Min AIC at k={kmin} (AIC={round(df$AIC[kmin],1)})\n",
+                      "Min BIC at k={kmin_BIC} (BIC={round(df$BIC[kmin_BIC],1)})") )
+
+
+
+
+
+p5 <- p4 + p2
+
+print(p1); print(p2); print(p3); print(p4); print(p5)
+
+
+# save if you want
+
+# ggsave(glue("{output_dir}/aic_by_step_DENV{i}.png"), p1, width = 6, height = 4, dpi = 300)
+# ggsave(glue("{output_dir}/devexp_by_step_DENV{i}.png"), p2, width = 6, height = 4, dpi = 300)
+# ggsave(glue("{output_dir}/bic_by_step_DENV{i}.png"), p3, width = 6, height = 4, dpi = 300)
+ggsave(glue("{output_dir}/AIC_BIC_devexp_by_step_DENV{i}.png"), p5, width = 6, height = 4, dpi = 300)
+
+}
+
+```
+
+
+
+
 
 Optimize the number of groups: set the minimum number of sequences per
 group to 30, with a minimum frequency of 1%.
