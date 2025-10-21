@@ -1,0 +1,160 @@
+---
+title: "Knee Analysis"
+author: "Douglas Fritz"
+date: "2025-10-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r lib}
+library(reticulate)
+library(ggplot2)
+library(glue)
+
+
+
+```
+
+
+```{r}
+# Load in potential splits
+potential_splits_1 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV1_timescale7_wind1_2025-10-20_1143.rds")
+potential_splits_2 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV2_timescale7_wind1_2025-10-20_1143.rds")
+potential_splits_3 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV3_timescale7_wind1_2025-10-20_1143.rds")
+potential_splits_4 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV4_timescale7_wind1_2025-10-20_1143.rds")
+
+
+# pick the env you want to use (this one already exists)
+use_virtualenv("~/.virtualenvs/r-kneeliverse", required = TRUE)
+
+py_config()  # should now show .../.virtualenvs/r-kneeliverse/bin/python
+py_run_string("import kneeliverse, numpy as np, pandas as pd; print('kneeliverse OK')")
+
+
+
+```
+
+```{r}
+
+output_dir <- "3_Output_Figures/3_5_DENV/3_5_99_Supplement"
+
+tag <- "DENV4"
+ps <- potential_splits_reasonable_4
+mods <- ps[["best_mod"]]
+
+
+
+df <- tibble::tibble(
+  step = seq_along(mods),
+  # AIC/BIC can still fail on odd models → guard them
+  AIC  = map_dbl(mods, possibly(AIC,           NA_real_)),
+  BIC  = map_dbl(mods, possibly(BIC,           NA_real_)),
+  dev  = {
+    if (!is.null(ps$best_summary)) {
+      map_dbl(ps$best_summary, ~ (.x$dev.expl %||% NA_real_))
+    } else {
+      map_dbl(mods, possibly(~ summary(.x)$dev.expl, NA_real_))
+    }
+  }
+) %>%
+  mutate(nonexpl = pmax(1 - dev, 0))
+```
+
+
+Consider using Kneeliverse python to detect elbows: 
+```{python}
+# bring R's df into Python
+df = r.df  # reticulate hands us a pandas.DataFrame
+
+# choose which curve to analyze: dev (increasing) or nonexpl (decreasing)
+x = df["step"].to_numpy(dtype=float)
+y = df["nonexpl"].to_numpy(dtype=float)        # or: df["nonexpl"].to_numpy()
+
+# assemble points (N x 2); x should be increasing
+pts = np.column_stack([x, y])
+ptslog = np.column_stack([x, np.log10(y)])
+
+# --- kneeliverse: Kneedle (single or multiple knees) ---
+import kneeliverse.kneedle as kneedle
+
+# Linear
+knees_kneedle_idx = kneedle.knees(pts, t=1.0, sensitivity=1.0, p = 'Kneedle')   # returns integer indices  
+knees_sig_idx = kneedle.knees(pts, t=1.0, sensitivity=1.0, p = 'Significant')   # returns integer indices
+knees_zscore_idx = kneedle.knees(pts, t=1.0, sensitivity=1.0, p = 'ZScore')   # returns integer indices
+multiknee_idx  = kneedle.multi_knee(pts, t1=0.01, t2=3)  # multi_knee variant
+
+# Log
+knees_log_idx = kneedle.knees(ptslog, t=1.0, sensitivity=1.0,  p = 'Kneedle')   # returns integer indices
+knees_log_sig_idx = kneedle.knees(ptslog, t=1.0, sensitivity=1.0, p = 'Significant')   # returns integer indices
+knees_log_zscore_idx = kneedle.knees(ptslog, t=1.0, sensitivity=1.0, p = 'ZScore')   # returns integer indices
+multiknee_log_idx  = kneedle.multi_knee(ptslog, t1=0.01, t2=3)  # multi_knee variant
+
+# expose back to R
+# Linear knees 
+r.knees_kneedle_idx = knees_kneedle_idx.astype(int) 
+r.knees_sig_idx = knees_sig_idx.astype(int) 
+r.knees_zscore_idx = knees_zscore_idx.astype(int) 
+r.multi_knee_idx = multiknee_idx.astype(int) 
+
+# log knees
+r.knees_log_idx = knees_log_idx.astype(int) 
+r.knees_log_sig_idx = knees_log_sig_idx.astype(int) 
+r.knees_log_zscore_idx = knees_log_zscore_idx.astype(int) 
+r.multiknee_log_idx = multiknee_log_idx.astype(int) 
+
+```
+
+
+```{r}
+
+knee_steps_kneedle <- df$step[knees_kneedle_idx]
+knee_steps_sig <- df$step[knees_sig_idx]
+knee_steps_zscore <- df$step[knees_zscore_idx]
+knee_steps_multiknee <- df$step[multi_knee_idx]
+
+knee_log_steps_kneedle <- df$step[knees_log_idx]
+knee_log_steps_sig <- df$step[knees_log_sig_idx]
+knee_log_steps_zscore <- df$step[knees_log_zscore_idx]
+knee_log_steps_multiknee <- df$step[multiknee_log_idx]
+
+
+Lin_plot <- ggplot(df, aes(step, nonexpl)) +
+  geom_line() + geom_point() + 
+  geom_vline(xintercept = knee_steps_kneedle + 0.25, linetype = 3, colour = "#C8102E") +
+  geom_vline(xintercept = knee_steps_sig, linetype = 1, colour = "#c75265") +
+  geom_vline(xintercept = knee_steps_zscore - 0.25, linetype = 2, colour = "#c77381") +
+  geom_point(
+    data = dplyr::filter(df, step %in% knee_steps_multiknee),
+    color = "purple", size = 2
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Explained deviance with knees")
+
+
+Log_plot <- ggplot(df, aes(step, nonexpl)) +
+  geom_line() + geom_point() + 
+  geom_vline(xintercept = knee_log_steps_kneedle + 0.25, linetype = 3, colour = "#C8102E") +
+  geom_vline(xintercept = knee_log_steps_sig, linetype = 1, colour = "#c75265") +
+  geom_vline(xintercept = knee_steps_zscore - 0.25, linetype = 2, colour = "#c77381") +
+  geom_point(
+    data = dplyr::filter(df, step %in% knee_log_steps_multiknee),
+    color = "purple", size = 2
+  ) +
+  scale_y_continuous(labels = scales::percent, 
+                     trans  = "log10") +
+  labs(title = "Explained deviance with knees (Log)")
+
+
+
+Lin_plot
+Log_plot
+
+ggsave(file.path(output_dir, glue("{tag}_knees_linear.png")), Lin_plot, width = 11, height = 7, dpi = 300)
+ggsave(file.path(output_dir, glue("{tag}_knees_log.png")), Log_plot, width = 11, height = 7, dpi = 300)
+
+
+```
+
