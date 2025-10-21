@@ -1222,7 +1222,7 @@ potential_splits_reasonable_2 = find.groups.by.index.dynamics(timed_tree = tree_
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
                                                  min_group_size = min_group_size,
                                                  p_value_smooth = p_value_smooth,
-                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
                                                  stepwise_AIC_threshold = stepwise_AIC_threshold,
                                                  weight_by_time = weight_by_time,
                                                  weighting_transformation = weighting_transformation,
@@ -1249,7 +1249,7 @@ attr(potential_splits_reasonable_2, "params") <- list(
   min_descendants_per_tested_node = min_descendants_per_tested_node,
   min_group_size = min_group_size,
   p_value_smooth = p_value_smooth,
-  stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+  stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
   stepwise_AIC_threshold = stepwise_AIC_threshold,
   weight_by_time = weight_by_time,
   weighting_transformation = weighting_transformation,
@@ -1280,7 +1280,7 @@ potential_splits_reasonable_1 = find.groups.by.index.dynamics(timed_tree = tree_
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
                                                  min_group_size = min_group_size,
                                                  p_value_smooth = p_value_smooth,
-                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
                                                  stepwise_AIC_threshold = stepwise_AIC_threshold,
                                                  weight_by_time = weight_by_time,
                                                  weighting_transformation = weighting_transformation,
@@ -1296,6 +1296,8 @@ potential_splits_reasonable_1 = find.groups.by.index.dynamics(timed_tree = tree_
 end_time = Sys.time()
 print(end_time - start_time)
 
+
+
 attr(potential_splits_reasonable_1, "params") <- list(
   head_note = "Run to with reasonable params on D1 for max lineages",
   node_support = tree_DENV1$edge.length[match((n_seq_1+1):(2*n_seq_1-1),
@@ -1306,7 +1308,7 @@ attr(potential_splits_reasonable_1, "params") <- list(
   min_descendants_per_tested_node = min_descendants_per_tested_node,
   min_group_size = min_group_size,
   p_value_smooth = p_value_smooth,
-  stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+  stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
   stepwise_AIC_threshold = stepwise_AIC_threshold,
   weight_by_time = weight_by_time,
   weighting_transformation = weighting_transformation,
@@ -1337,7 +1339,7 @@ potential_splits_reasonable_4 = find.groups.by.index.dynamics(timed_tree = tree_
                                                  min_descendants_per_tested_node = min_descendants_per_tested_node,
                                                  min_group_size = min_group_size,
                                                  p_value_smooth = p_value_smooth,
-                                                 stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+                                                 stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
                                                  stepwise_AIC_threshold = stepwise_AIC_threshold,
                                                  weight_by_time = weight_by_time,
                                                  weighting_transformation = weighting_transformation,
@@ -1363,7 +1365,7 @@ attr(potential_splits_reasonable_4, "params") <- list(
   min_descendants_per_tested_node = min_descendants_per_tested_node,
   min_group_size = min_group_size,
   p_value_smooth = p_value_smooth,
-  stepwise_deviance_explained_threshold = max_stepwise_deviance_explained_threshold,
+  stepwise_deviance_explained_threshold = stepwise_deviance_explained_threshold,
   stepwise_AIC_threshold = stepwise_AIC_threshold,
   weight_by_time = weight_by_time,
   weighting_transformation = weighting_transformation,
@@ -1377,6 +1379,8 @@ attr(potential_splits_reasonable_4, "params") <- list(
   max_groups_found =  max_groups_found_default,
   keep_track = keep_track
 )
+
+attr(potential_splits_reasonable_4, "params")
 ```
 
 Saving the Potential Splits and treedata
@@ -1384,7 +1388,6 @@ Saving the Potential Splits and treedata
 
 
 for (d in 1:4){
-  
   potential_splits <- get(sprintf("potential_splits_reasonable_%d", d))
   splits_file_name <- glue("4_Output_Data/Max_groups_potential_splits_reasonable_DENV{d}_timescale{timescale}_wind{wind}_{st}.rds")
   write_rds(potential_splits, splits_file_name)
@@ -1415,9 +1418,15 @@ Instead, you may wish to load or write the results:
 # potential_splits_4 = readRDS("4_Output_Data/potential_splits_DENV4_timescale7_wind1_2025-06-20_0018.rds")
 # 
 
+
+potential_splits_1 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV1_timescale7_wind1_2025-10-20_1143.rds")
+potential_splits_2 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV2_timescale7_wind1_2025-10-20_1143.rds")
+potential_splits_3 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV3_timescale7_wind1_2025-10-20_1143.rds")
+potential_splits_4 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV4_timescale7_wind1_2025-10-20_1143.rds")
+
+
+
 ##Write
-
-
 # file_name_3 <- glue("4_Output_Data/potential_splits_DENV3_timescale{timescale}_wind{wind}_{st}.rds")
 # write_rds(potential_splits_3, file_name_3)
 # 
@@ -1435,7 +1444,7 @@ Instead, you may wish to load or write the results:
 Look at the deviance explained by the models with different number of
 groups. Here for simplicity we directly chose max_groups_found_3 = 7. To
 decide on this many groups, we initially ran the algorithm up to 30
-groups (though it converged at 14).
+groups.
 
 
 
@@ -1449,7 +1458,7 @@ How many lineages to choose is a practical question not something that is easy t
 max_groups_found_line_3 = 6
 max_groups_found_line_2 = 3
 max_groups_found_line_1 = 8
-max_groups_found_line_4 = 2
+max_groups_found_line_4 = 4
 
 for (i in 1:4) {
   
@@ -1465,12 +1474,8 @@ for (i in 1:4) {
   df_explained_dev_i <- data.frame(
     'N_groups' = 0:length(potential_splits$best_dev_explained),
     'Non_explained_deviance' = (1 - c(potential_splits$first_dev, potential_splits$best_dev_explained)),
-    'Non_explained_deviance_log' = log(1 - c(potential_splits$first_dev, potential_splits$best_dev_explained))
+    'Non_explained_deviance_log' = log10(1 - c(potential_splits$first_dev, potential_splits$best_dev_explained))
   )
-  
-  ## Adjust the log values
-  df_explained_dev_i$Non_explained_deviance_log <- df_explained_dev_i$Non_explained_deviance_log - 
-                                                   min(df_explained_dev_i$Non_explained_deviance_log)
   
   ## Linear scale plot
   plot(df_explained_dev_i$N_groups,
@@ -1486,17 +1491,16 @@ for (i in 1:4) {
   ## Log scale plot
   plot(df_explained_dev_i$N_groups,
        df_explained_dev_i$Non_explained_deviance,
-       log = 'y',
-       ylim = c(0.01, 1),
+       log = 'y', # This is log10
+       ylim = c(0.0001, 1),
        bty = 'n',
        xaxt = 'n', yaxt = 'n', pch = 16, 
        main = paste('Log scale DENV', i), cex = 0.5,
        ylab = 'Non-explained deviance (%) - log scale', xlab = 'Number of groups')
   axis(1, lwd = 0.5, tck = -0.02)
-  axis(2, las = 2, 
-       at = c(0.01, 0.1, 0.25, 0.5, 1),
-       labels = c(0.01, 0.1, 0.25, 0.5, 1) * 100, 
-       lwd = 0.5, tck = -0.02)
+  yticks <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1)
+  yticks <- yticks[yticks >= 0.0001 & yticks <= 1]
+  axis(2, las = 2, at = yticks, labels = yticks * 100, lwd = 0.5, tck = -0.02)
   abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
   
   dev.off()
@@ -1505,10 +1509,17 @@ for (i in 1:4) {
 
 ```
 
+ 
+ 
+ 
+ 
+ 
 
 ```{r AIC BIC plots}
 
 for (i in 1:4) {
+  
+  i = 3
   
   potential_splits <- get(paste0('potential_splits_', i))
   mods <- potential_splits[["best_mod"]]
@@ -1521,6 +1532,12 @@ df <- tibble(
   dev  = sapply(mods, function(m) summary(m)$dev.expl)
 )
 
+df <- df %>%
+  mutate(
+    dev_pct  = dev * 100,
+    nonexpl  = pmax(1 - dev, 1e-8)
+  )
+
 kmin <- df$step[which.min(df$AIC)]
 kmin_BIC <- df$step[which.min(df$BIC)]
 
@@ -1531,35 +1548,58 @@ p1 <- ggplot(df, aes(step, AIC)) +
        title = "Model AIC across tested splits",
        subtitle = sprintf("Min AIC at k=%d (AIC=%.1f)", kmin, df$AIC[kmin]))
 
-p2 <- ggplot(df, aes(step, dev * 100)) +
+p2 <- ggplot(df, aes(step, dev_pct)) +
   geom_line() + geom_point() +
   labs(x = "Number of groups (step index)", y = "Deviance explained (%)",
-       title = "Deviance explained across tested splits") 
+       title = glue("DENV{i} Deviance across tested splits"))
+
 
 p3 <- ggplot(df, aes(step, BIC)) +
   geom_line() + geom_point() +
   geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#C8102Eaa") +
   labs(x = "Number of groups (step index)", y = "BIC",
-       title = "Model BIC across tested splits",
+       title = glue("DENV{i} Model BIC across tested splits"),
        subtitle = sprintf("Min BIC at k=%d (BIC=%.1f)", kmin_BIC, df$BIC[kmin_BIC])) 
 
 p4 <- ggplot(df, aes(step)) +
   geom_line(aes(y = AIC), colour = "#012169FF") + geom_point(aes(y = AIC), colour = "#012169FF") +
   geom_line(aes(y = BIC), colour = "#C8102EFF") + geom_point(aes(y = BIC), colour = "#C8102EFF") +
-  geom_vline(xintercept = kmin, linetype = 2, color = "#C8102Eaa") +
-  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#012169aa") +
+  geom_vline(xintercept = kmin, linetype = 2, color = "#012169aa") +
+  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#C8102Eaa") +
   labs(x = "Number of groups (step index)", y = "Value",
-       title = "Model AIC & BIC across tested splits",
+       title = glue("DENV{i} Model AIC & BIC across tested splits"),
        subtitle = glue::glue("Min AIC at k={kmin} (AIC={round(df$AIC[kmin],1)})\n",
                       "Min BIC at k={kmin_BIC} (BIC={round(df$BIC[kmin_BIC],1)})") )
 
 
+p6 <- ggplot(df, aes(step, nonexpl)) +
+  geom_line() + geom_point() +
+  scale_y_continuous(
+    trans  = "log10",
+    breaks = scales::log_breaks(n = 6),                       # data-aware log ticks
+    labels = function(x) scales::percent(x, accuracy = 0.1)   # show as %
+  ) +
+  labs(x = "Number of groups (step index)", y = "Non-explained Deviance (%) - log scale",
+       title = glue("DENV{i} Non-explained Deviance explained across tested splits (log)"))
+
+p7 <- ggplot(df, aes(step, nonexpl*100)) +
+  geom_line() + geom_point() +
+  labs(x = "Number of groups (step index)", y = "Non-explained Deviance (%)",
+       title = glue("DENV{i} Non-explained Deviance explained across tested splits"))
 
 
 
-p5 <- p4 + p2
+p8 <- p2 + p6 + p7
 
-print(p1); print(p2); print(p3); print(p4); print(p5)
+
+
+p5 <- p4 + p6 + p7
+
+print(p1); print(p2); print(p3); print(p4); print(p5); print(p6); print(p7); print(p8)
+
+
+
+
 
 
 # save if you want
@@ -1567,7 +1607,12 @@ print(p1); print(p2); print(p3); print(p4); print(p5)
 # ggsave(glue("{output_dir}/aic_by_step_DENV{i}.png"), p1, width = 6, height = 4, dpi = 300)
 # ggsave(glue("{output_dir}/devexp_by_step_DENV{i}.png"), p2, width = 6, height = 4, dpi = 300)
 # ggsave(glue("{output_dir}/bic_by_step_DENV{i}.png"), p3, width = 6, height = 4, dpi = 300)
-ggsave(glue("{output_dir}/AIC_BIC_devexp_by_step_DENV{i}.png"), p5, width = 6, height = 4, dpi = 300)
+ggsave(glue("{output_dir}/AIC_BIC_devexp_by_step_DENV{i}.png"), p5, width = 8, height = 11, dpi = 300)
+ggsave(glue("{output_dir}/Devexp_by_step_DENV{i}.png"), p8, width = 8, height = 11, dpi = 300)
+
+
+
+
 
 }
 
