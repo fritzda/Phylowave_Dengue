@@ -2320,6 +2320,9 @@ Uncertainty in Bayesian LOO-CV Model Comparison
 Quantify the fitness of each group you can run the code (this steps
 takes approximately 12hrs on 14 cores):
 
+
+## TODO breakpoints model takes too long on 8 core mac with lots of groups. Need more power
+
 ```{r main model, eval = F, results = 'hide', warning=FALSE, message=FALSE}
 
 
@@ -2416,7 +2419,7 @@ for (i in seq_along(serotypes)) {
 }
 
 
-#Help to assess degree of imporvement
+#Help to assess degree of improvement
 # Understanding elpd_diff / se_diff
 # This ratio behaves like a standardized effect size for model comparison:
 # It tells us how much better the top model is than others, relative to uncertainty.
