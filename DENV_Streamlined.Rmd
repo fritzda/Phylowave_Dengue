@@ -394,7 +394,6 @@ For example: "1994.019_BKK_3II_00092/94"
 Load the tree, in which all the tip name include: collection time,
 location and Pango lineage
 
-
 ```{r load tree, eval=T}
 tree_path  <- "1_Data/1_5_DENV/best_tree_d%d_Lin.nexus"
 
@@ -595,8 +594,9 @@ for (d in 1:4) {
 
 ```
 
+Several of the DENV 3 strains are missing clade asignments, these were
+assigned by eye.
 
-Several of the DENV 3 strains are missing clade asignments, these were assigned by eye. 
 ```{r fixing D3XX}
 #Fixing 3XX
 
@@ -695,8 +695,6 @@ for (d in 1:4) {
 ```
 
 # Figure 1 Plot tree & index below, with colors from clades
-
-
 
 ```{r clade and index plotting funcitons}
 
@@ -886,6 +884,7 @@ old_clade_and_index_panel_plot <- function(
 ```
 
 ### TODO: Maxtime or set all to 1965?
+
 ```{r clade and index plots old clades}
 
 old_tree_plot(
@@ -949,7 +948,6 @@ old_clade_and_index_panel_plot(
 
 
 ```
-
 
 ### Suplement Wind and Timescale robustness: Subplot comparison
 
@@ -1055,20 +1053,36 @@ To run the lineage detection algorithm, use the function
     *stepwise_deviance_explained_threshold*, *stepwise_AIC_threshold*,
     *k_smooth*, *parallelize_code*, *number_cores*, *plot_screening*,
     *keep_track* and *log_y*.
-    
+
 #### More notes on Parameters for the detection:
 
-Threshold node support: Max lineages is the same as number of lineages. Idea is restrict search space to certain level. Trying to restrict space to only well supported nodes. Each node has support value: 1. bootstrap/posterior (similar to Tb tree) support comes from data Creates sparsing issues in viruses that don't change much. 2. Proxy of how many mutations ahead of branch. If two nodes are separated by a short amount of time then the hypothesis that both nodes are distinct is less likely. Uses branch lenght between nodes. Only permit nodes that are at least 1 mutation apart. Length must be how long it takes for 1 mutation.
+Threshold node support: Max lineages is the same as number of lineages.
+Idea is restrict search space to certain level. Trying to restrict space
+to only well supported nodes. Each node has support value: 1.
+bootstrap/posterior (similar to Tb tree) support comes from data Creates
+sparsing issues in viruses that don't change much. 2. Proxy of how many
+mutations ahead of branch. If two nodes are separated by a short amount
+of time then the hypothesis that both nodes are distinct is less likely.
+Uses branch lenght between nodes. Only permit nodes that are at least 1
+mutation apart. Length must be how long it takes for 1 mutation.
 
+Using time_window_initial + increment: sometimes helpful if wanting to
+look at newer lineages. But elbow plots are harder to interpret as
+depeneding on time params. Not recommended.
 
-Using time_window_initial + increment: sometimes helpful if wanting to look at newer lineages. But elbow plots are harder to interpret as depeneding on time params. Not recommended.  
+min_descendants_per_tested_node: only considering nodes with n tip and
+node descendents. A filter or partition of the tree.
 
-min_descendants_per_tested_node: only considering nodes with n tip and node descendents. A filter or partition of the tree. 
+Index dynamics are made of many splines (each with a k), p values for
+the spline need to better explain dynamics. k is the number of knots
 
-Index dynamics are made of many splines (each with a k), p values for the spline need to better explain dynamics. k is the number of knots 
-
-Weight by time: Seqiences are a time series, this compensates for some times where there are no sequences. Thus the model is trying to overexplain the densely time sampled variants. Penalty for higher samples in higher sampled times. Weight by time is the bucket/slice of time in years. 
-weighting_transformation: how the penalty is applied. Can try all of these but can't really compare between compare since AIC and BIC are poor measure of GAM comparison.  
+Weight by time: Seqiences are a time series, this compensates for some
+times where there are no sequences. Thus the model is trying to
+overexplain the densely time sampled variants. Penalty for higher
+samples in higher sampled times. Weight by time is the bucket/slice of
+time in years. weighting_transformation: how the penalty is applied. Can
+try all of these but can't really compare between compare since AIC and
+BIC are poor measure of GAM comparison.
 
 The function outputs multiple elements in a list:
 
@@ -1101,9 +1115,6 @@ group ID for each node using the function *merge.groups*. One can choose
 to refine these groups if needed, by setting a minimum number of nodes
 per group (*group_count_threshold*) or a minimum frequency of each group
 (*group_freq_threshold*).
-
-
-
 
 Parameters for the detection:
 
@@ -1385,6 +1396,7 @@ attr(potential_splits_reasonable_4, "params")
 ```
 
 Saving the Potential Splits and treedata
+
 ```{r save splits, }
 
 
@@ -1404,8 +1416,6 @@ for (d in 1:4){
 }
 
 ```
-
-
 
 Instead, you may wish to load or write the results:
 
@@ -1456,13 +1466,12 @@ groups. Here for simplicity we directly chose max_groups_found_3 = 7. To
 decide on this many groups, we initially ran the algorithm up to 30
 groups.
 
+How many lineages to choose is a practical question not something that
+is easy to ground in math. Elbow plot analysis is basically arbitrary.
+First elbow is the known dynamics, the second elbow is more exploratory.
+Stopping at the first linear point on horizontal line.
 
-
-
-How many lineages to choose is a practical question not something that is easy to ground in math. Elbow plot analysis is basically arbitrary. First elbow is the known dynamics, the second elbow is more exploratory. Stopping at the first linear point on horizontal line. 
-
-Use knees to detect elbow. 
-
+Use knees to detect elbow.
 
 ###TODO Why is D3 log less than 1 (log1 = 0)
 
@@ -1618,8 +1627,8 @@ ggsave(glue("{output_dir}/Devexp_by_step_DENV{i}.png"), p8, width = 8, height = 
 Optimize the number of groups: set the minimum number of sequences per
 group to 30, with a minimum frequency of 1%.
 
-
-#TODO: Decide if we should do more groups, and do sensitivty analysis on differnt numbers of groups
+#TODO: Decide if we should do more groups, and do sensitivty analysis on
+differnt numbers of groups
 
 ```{r minimum groups, eval = T}
 
@@ -1777,7 +1786,6 @@ for (i in 1:4) {
 
 ```
 
-
 #### Compare NextStrain groups and groups called with the index
 
 Generate trees colored with each set of groups next to each other:
@@ -1921,7 +1929,6 @@ plot_tree_world_Nextstrain_4 = gheatmap(plot_tree_world_Nextstrain_4, Nextstrain
 
 
 ```
-
 
 This doesn't work due to aes issues coloring the whole tree
 
@@ -2083,9 +2090,6 @@ plot_tree_world_Nextstrain_4
 
 ```
 
-
-
-
 Dynamically doing the above (Doesn't work due to aethetics inside the
 loop issues)
 
@@ -2126,7 +2130,6 @@ for (i in 1:4) {
 
 
 ```
-
 
 ## Quantify the fitness of detected DENV lineage
 
@@ -2203,8 +2206,6 @@ write_rds(x = res_fitness, file = glue("4_Output_Data/res_fintess_{i}_max_groups
 }
 
 ```
-
-
 
 ```{r main model params}
 
@@ -2319,7 +2320,6 @@ Uncertainty in Bayesian LOO-CV Model Comparison
 
 Quantify the fitness of each group you can run the code (this steps
 takes approximately 12hrs on 14 cores):
-
 
 ## TODO breakpoints model takes too long on 8 core mac with lots of groups. Need more power
 
@@ -2447,8 +2447,6 @@ DENV4_loo_df <-  annotate_loo_df(DENV4_loo_df)
 
 ```
 
-
-
 Alternatively load the previous results
 
 ```{r, eval = FALSE}
@@ -2480,7 +2478,6 @@ for (i in seq_along(serotypes)) {
   )
 }
 ```
-
 
 ```{r plot breakpoints, eval = F, results = 'hide', warning=FALSE, message=FALSE}
 
@@ -2557,29 +2554,143 @@ To save some time, you may wish to load the results:
 
 ```
 
-#### Plot the fits and estimated parameters
+## Plot the fits and estimated parameters
 
-Plot the fits:
+There are a number of plotting functions in 2_3_Lineage_fitness.R
 
-```{r, eval = FALSE}
-order_colors = order(as.numeric(split_i$tip_and_nodes_groups))
+### plot_fit_data()
 
-#assign order_colors_i here
+Purpose: Plot modeled lineage frequency trajectories over time with 95%
+credible ribbons, overlaid with observed multinomial proportions and
+CIs. What it plots Solid line: posterior mean predicted proportion for
+each lineage over time. Shaded ribbon: credible interval for predicted
+proportions (from posterior draws). Points + vertical bars: observed
+multinomial proportion and CI at each time. Signature
+plot_fit_data(data, Chains, colour_lineage)
 
-colour_lineage = colors_groups_i[match(split_i$tip_and_nodes_groups[order_colors], name_groups_i)]
-#assign color_lineage_i here
+**Arguments**
 
-plot_fit_data_new(data = res_fitness_i$data,
-                  Chains = res_fitness_i$chains,
-                  colour_lineage = colour_lineage,
-                  xmin = min_year_model, xmax = max_year)
+-   data: list-like with
 
-# Color key
-legend('topright',
-       legend = name_groups_i,
-       fill = colour_lineage, border = colour_lineage,
-       cex = 0.5, bty = 'n', ncol = 5)
-```
+    -   t (numeric, length N): time in years (x-axis)
+
+    -   Y (N × K matrix): counts per time (rows) and lineage (cols)
+
+    -   N (int): number of time points
+
+    -   K (int): number of lineages
+
+-   Chains: list-like with
+
+    -   lp\_\_ (numeric vector, length = posterior draws)
+
+    -   theta (iter × K × N array): per-draw soft assignments
+        (pre-softmax) or logits
+
+-   colour_lineage: vector of length K with plotting colors.
+
+### plot_fit_data_new()
+
+Same as plot_fit_data(), but plots on a user-specified x-range and uses
+predicted proportions from `Chains$theta_new` indexed by `data$N_new`
+and times `data$t_new` from the breakpoint models
+
+### plot_fit_data_per_group()
+
+Purpose: Small-multiples: one panel per lineage (K panels). Each panel
+shows that lineage’s predicted trajectory + CI ribbon and its observed
+multinomial proportion + CI.
+
+**Arguments** Same as `plot_fit_data()` series Creates a fresh plot
+(base device) inside the loop for each lineage i.
+
+### plot_fit_data_selected()
+
+Purpose: Plot modeled trajectories (with ribbons) and observed
+multinomial proportions only for a subset of lineages, masking times
+before lineage birth. Uses `Chains$theta_new` / `data$t_new`
+predictions, but plots only where `t_new` \>= `t_start[i]`.
+
+**Arguments** As in `plot_fit_data_new()`, plus - `t_start` (numeric,
+length K) in `data`: lineage birth time per lineage. - `selected`
+(integer vector): indices of lineages to draw.
+
+### plot_fitness_values()
+
+Purpose: Plot relative fitness per generation (on a log y-scale) for
+each lineage with CIs, plus a reference value of 1. - Points (pch=16) at
+1:K and an extra reference point at K+1 fixed at 1. - Vertical CI bars
+for each lineage. - Horizontal dashed line at 1.
+
+**Relative Index Computation**
+
+-   betas \<- `apply(exp(Chains$beta * gentime), 2, mean.and.ci)`
+
+-   i.e., exponentiated fitness per generation, scaled by generation
+    time)
+
+**Arguments**
+
+-   `beta` in `Chains`: matrix/array of per-draw fitness coefficients by
+    lineage (columns).
+
+-   `gentime` (numeric): multiply beta by generation time before
+    exponentiation.
+
+-   `colour_lineage`: vector of colors (length K).
+
+### plot_estimated_fitness_ref_ancestral()
+
+**Purpose**: Plot **raw (non-exponentiated)** relative fitness estimates
+vs an ancestral reference (0), with CIs.
+
+-   Points (pch=16) at `1:K` with mean fitness (scaled by `gentime` but
+    **not** exponentiated).
+
+-   CI bars per lineage, horizontal reference line at 0.
+
+-   X-axis shows `1:(K+1)` with the final position corresponding to the
+    reference (0).
+
+**Computation**
+
+-   `betas <- apply(Chains$beta * gentime, 2, mean.and.ci)`
+
+### plot_estimated_fitness_ref_ancestral_breakpoint()
+
+**Purpose**: Visualize **pre- vs post-breakpoint** raw relative fitness
+( vs ancestral reference 0) for each lineage, side-by-side jittered
+along x.
+
+-   For each lineage (x position i):
+
+    -   **Pre-breakpoint** mean+CI (pch=16) at `i - 0.05`.
+
+    -   **Post-breakpoint** mean+CI (pch=17) at `i + 0.05`.
+
+-   Horizontal reference at 0, legend distinguishing pre/post.
+
+**Computation**
+
+-   `beta_pre <- Chains$beta_pre * gentime`
+
+-   `beta_post <- Chains$beta_post * gentime`
+
+-   `mean.and.ci` applied columnwise; a reference (0) is appended.
+
+### plot_observed_vs_predicted()
+
+**Purpose**: Calibration plot comparing **observed** multinomial
+proportions vs **posterior predicted means** across time for each
+lineage.
+
+-   For each lineage: points of `(observed, predicted)` with 45°
+    reference line.
+
+-   Observed = Bayesian binomial proportions per time point using
+    `binom::binom.confint(method = "bayes")` (central).
+
+-   Predicted = posterior mean of `softmax(theta)` per time.
 
 ```{r}
 for (i in 1:4) {
@@ -2620,7 +2731,6 @@ for (i in 1:4) {
   # Close the PNG device
   dev.off()
 }
-
 
 ## Best year model
 
@@ -2681,6 +2791,109 @@ for (i in 1:4) {
 }
 ```
 
+Plot specific lineages separately
+
+```{r}
+for (i in 1:4) {
+  # Retrieve relevant variables
+  split <- get(paste0('split_', i))
+  res_fitness <- get(paste0('res_fitness_', i))
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i))
+  
+  # Order colors dynamically
+  order_colors <- order(as.numeric(split$tip_and_nodes_groups))
+  assign(paste0('order_colors_', i), order_colors)
+  
+  # Assign lineage colors dynamically
+  colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
+  assign(paste0('colour_lineage_', i), colour_lineage)
+  
+  png(filename = glue("3_Output_Figures/3_5_DENV/3_5_2_Figure 2/Fitness_Lineage_%02d_plot_DENV_{i}_{st}_min_year_{min_year_model}.png"), width = 1600, height = 1400, res = 300)
+  
+  # Plot fitness data
+  plot_fit_data_per_group(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage
+  )
+  
+  # Add legend
+  legend(
+    'topright', 
+    legend = name_groups,
+    fill = colour_lineage, 
+    border = colour_lineage,
+    cex = 0.5, bty = 'n', ncol = 5
+  )
+  
+  # Close the PNG device
+  dev.off()
+}
+```
+
+Plot lineages seperantely on 1 plot
+```{r lineage plot combined}
+for (i in 1:4) {
+  split         <- get(paste0('split_', i))
+  res_fitness   <- get(paste0('res_fitness_', i))
+  name_groups   <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i))
+
+  order_colors   <- order(as.numeric(split$tip_and_nodes_groups))
+  colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
+
+  K    <- res_fitness$data$K
+  cols <- 3L
+  rows <- ceiling(K / cols)
+
+  # Each panel = 5in wide x 3in high @ 300 dpi
+  w_in <- cols * 5
+  h_in <- rows * 3
+
+  # Open a device sized by the grid (units in inches = super convenient)
+  png(
+    filename = glue("3_Output_Figures/3_5_DENV/3_5_2_Figure 2/Fitness_Lineage_All_plot_DENV_{i}_{st}_min_year_{min_year_model}.png"),
+    width = w_in, height = h_in, units = "in", res = 300, type = "cairo-png"
+  )
+
+  op <- par(no.readonly = TRUE)
+  # Tighter margins so many small panels won’t hit "figure margins too large"
+  par(
+    mfrow = c(rows, cols),
+    mar = c(2, 2, 1.2, 1.0),
+    oma = c(0, 0, 0, 0),
+    mgp = c(1.2, 0.4, 0),
+    tcl = -0.25,
+    xaxs = "i", yaxs = "i",
+    cex = 0.9
+  )
+
+  # Draw all K panels (the function plots one panel per lineage internally)
+  tryCatch({
+    plot_fit_data_per_group(
+      data   = res_fitness$data,
+      Chains = res_fitness$chains,
+      colour_lineage = colour_lineage
+    )
+
+    # Legend on the last panel (kept simple). If you prefer a global legend,
+    # we can allocate an extra panel or use outer margins.
+    legend(
+      "topright", legend = name_groups,
+      fill = colour_lineage, border = colour_lineage,
+      cex = 0.6, bty = "n", ncol = 5
+    )
+  }, finally = {
+    par(op); dev.off()
+  })
+}
+```
+
+
+
+
+
 Plot the predicted vs observed proportions:
 
 ```{r observed vs predicted single, eval=FALSE}
@@ -2694,7 +2907,8 @@ plot_observed_vs_predicted(data = res_fitness$data,
 for (i in 1:4) {
   res_fitness <- get(paste0('res_fitness_', i))
   colour_lineage <- get(paste0('colour_lineage_', i))
-  png(filename = paste0("3_Output_Figures/observed_vs_predicted_DENV_", i , "_", st, "_min_year_", min_year_model, ".png"), width = 1600, height = 1400, res = 300)
+  png(filename = glue("3_Output_Figures/3_5_DENV/3_5_2_Figure 2/Observed_vs_predicted_DENV_{i}_{st}_min_year_{min_year_model}.png")
+      , width = 1600, height = 1400, res = 300)
 
   plot_observed_vs_predicted(
     data = res_fitness$data,
