@@ -1917,13 +1917,17 @@ plot_tree_world_Nextstrain_4 = gheatmap(plot_tree_world_Nextstrain_4, Nextstrain
   scale_y_continuous(expand=c(0, 0.3))+
   theme(legend.position = 'none')
 
-plot_tree_world_groups_4
-plot_tree_world_Nextstrain_4
 
 
+
+```
+
+
+This doesn't work due to aes issues coloring the whole tree
+
+```{r dyanmic classical vs new}
 for (i in 1:4) {
 
-  i <- 4
 ## Dynamically retrieve the relevant variables
   tree <- get(paste0('tree_DENV', i))
   dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
@@ -1945,7 +1949,7 @@ for (i in 1:4) {
 tip_df <- filter(dataset_with_nodes, is.node == "no") %>% 
   transmute(
     label  = name_seq,         
-    groups = factor(groups)    
+    groups = factor(groups)
   )
   
 
@@ -2014,6 +2018,56 @@ assign(paste0('plot_tree_world_groups_', i), plot_tree_world_groups)
 
 }
 
+```
+
+This works but doesn't label the tree (below)
+
+```{r}
+
+
+for (i in 1:4) {
+
+  tree  <- get(paste0('tree_DENV', i))
+  dwn   <- get(paste0('dataset_with_nodes_', i))
+  times <- get(paste0('times_seqs_', i))
+  cols_groups <- as.character(get(paste0('colors_groups_', i)))
+  names(cols_groups) <- levels(factor(dwn$groups[dwn$is.node == "no"]))
+
+  # tip metadata
+  tip_df <- dplyr::filter(dwn, is.node == "no") |>
+    dplyr::transmute(
+      label  = name_seq,
+      groups = factor(groups)
+    )
+
+  # base tree: no color mapping here
+  p <- ggtree(tree,
+              mrsd = lubridate::date_decimal(max(times)),
+              size = 0.10) +
+       theme_tree2()
+
+  # attach tip data and color ONLY on the tip layer
+  p <- (p %<+% tip_df) +
+       geom_tippoint(aes(color = groups), size = 0.25) +
+       scale_color_manual(values = cols_groups, drop = FALSE)
+
+  # heatmap table (1 col, rownames = tip labels, same order)
+  hm <- data.frame(Group = tip_df$groups)
+  rownames(hm) <- tip_df$label
+  hm <- hm[tree$tip.label, , drop = FALSE]
+
+  p_hm <- gheatmap(p, hm,
+                   offset = 0.1, width = 0.10,
+                   colnames = FALSE, legend_title = "Group",
+                   color = NA) +
+          scale_fill_manual(values = cols_groups, drop = FALSE) +
+          scale_y_continuous(expand = c(0, 0.3)) +
+          theme(legend.position = "none")
+
+  assign(paste0('plot_tree_world_groups_', i), p_hm, inherits = TRUE)
+}
+
+
 plot_tree_world_groups_1
 plot_tree_world_Nextstrain_1
 
@@ -2027,12 +2081,7 @@ plot_tree_world_groups_4
 plot_tree_world_Nextstrain_4
 
 
-
-# Save the static combined plot
-  ggsave(filename = paste0("3_Output_Figures/","DENV_", i, "_", "Classical_vs_Phylowave_Clades_combined_plot_", st, ".svg"), plot = combined_plot, width = 12, height = 6)
-
 ```
-
 
 
 
@@ -2040,17 +2089,7 @@ plot_tree_world_Nextstrain_4
 Dynamically doing the above (Doesn't work due to aethetics inside the
 loop issues)
 
-Plot the generated trees:
-
-```{r, eval = False}
-plot_grid(plot_tree_world_groups_i, plot_tree_world_Nextstrain_i,
-          rel_widths = c(1, 1), labels = c('Automatic clades DENV_i', 'NextStrain clades_i'), label_size = 10, label_x = c(0.1, 0.25), ncol = 2)
-
-ggplotly(subplot(plot_tree_world_groups_i, plot_tree_world_Nextstrain_i,
-         widths = c(0.5, 0.5)))
-```
-
-Dynamcially
+Plot the generated trees side by side Dynamcially
 
 ```{r}
 
@@ -2065,48 +2104,60 @@ for (i in 1:4) {
     plot_tree_world_groups, 
     plot_tree_world_Nextstrain,
     rel_widths = c(1, 1), 
-    labels = c(paste('Automatic clades DENV_', i, sep = ''), paste('Classical clades DENV_', i, sep = '')), 
+    labels = c(paste('Phylowave clades DENV', i, sep = ''), paste('Classical clades DENV', i, sep = '')), 
     label_size = 10, 
     label_x = c(0.1, 0.25), 
     ncol = 2
   )
   
   # Save the static combined plot
-  ggsave(filename = paste0("3_Output_Figures/","DENV_", i, "_", "Classical_vs_Phylowave_Clades_combined_plot_", st, ".svg"), plot = combined_plot, width = 12, height = 6)
+  ggsave(filename = paste0("3_Output_Figures/3_5_DENV/3_5_1_Figure 1/","DENV_", i, "_", "Classical_vs_Phylowave_Clades_combined_plot_", st, ".svg"), plot = combined_plot, width = 12, height = 6)
   
   # Side-by-side interactive plot using ggplotly and subplot
   interactive_plot <- ggplotly(
     subplot(plot_tree_world_groups, plot_tree_world_Nextstrain, widths = c(0.5, 0.5))
   )
+
   
   # Save the interactive plot as an HTML file
-  htmlwidgets::saveWidget(interactive_plot, file = paste0("3_Output_Figures/","DENV_", i, "Classical_vs_Phylowave_Clades_interactive_plot_", st,".html"))
+  htmlwidgets::saveWidget(interactive_plot, file = glue("3_Output_Figures/3_5_DENV/3_5_1_Figure 1/Interactives/DENV_{i}_Classical_vs_Phylowave_Clades_interactive_plot_{st}.html"))
 }
 
+
+
 ```
+
 
 ## Quantify the fitness of detected DENV lineage
 
 #### Run the fitness model
 
 ```{r debug model, eval=FALSE}
-options(mc.cores = 14) #Set to 14 coresMore actions
+
+min_year_model <- 1985
+max_year_model <- 2015
+
+options(mc.cores = 8) #Set to coresMore actions
 start_time = Sys.time()
 ## Load and compile stan code (this can take a few minutes)
+
 
 ## If you get an error about path mapping to a previous user 
 ##make sure to go into the model/scripts folder and delete the old unix model before making this one or run: cmdstanr::rebuild_cmdstan()
 model_compiled <- cmdstan_model(stan_file = '2_Functions/Model_multinomial_logistic_birthdeath_lineage_fitness_20231220.stan')
 ## Run model on the groups
 
-
+# model_compiled$print()
 
 res_fitness_3 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_3,
                                                         tree = tree_DENV3,
                                                         min_year = min_year_model, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1) #increased warmup and sampling from 250 and 500
+                                                        iter_warmup = 1000, 
+                                                        iter_sampling = 2000, 
+                                                        refresh = 50, 
+                                                        seed = 1) #increased warmup and sampling from 250 and 500
 
 
 res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_2,
@@ -2114,14 +2165,20 @@ res_fitness_2 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = d
                                                         min_year = min_year_model, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+                                                        iter_warmup = 1000, 
+                                                        iter_sampling = 2000, 
+                                                        refresh = 50, 
+                                                        seed = 1)
 
 res_fitness_1 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_1,
                                                         tree = tree_DENV1,
                                                         min_year = min_year_model, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+                                                        iter_warmup = 1000, 
+                                                        iter_sampling = 2000, 
+                                                        refresh = 50, 
+                                                        seed = 1)
 
 
 res_fitness_4 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = dataset_with_nodes_4,
@@ -2129,10 +2186,25 @@ res_fitness_4 = estimate_rel_fitness_groups_with_branches(dataset_with_nodes = d
                                                         min_year = min_year_model, 
                                                         window = wind, 
                                                         model_compiled = model_compiled,
-                                                        iter_warmup = 1000, iter_sampling = 2000, refresh = 50, seed = 1)
+                                                        iter_warmup = 1000, 
+                                                        iter_sampling = 2000, 
+                                                        refresh = 50, 
+                                                        seed = 1)
 end_time = Sys.time()
 print(end_time - start_time)
 ```
+
+```{r save fitness model}
+
+for (i in 1:4) {
+res_fitness <- get(glue("res_fitness_{i}"))
+write_rds(x = res_fitness, file = glue("4_Output_Data/res_fintess_{i}_max_groups{st}.rds"))
+
+}
+
+```
+
+
 
 ```{r main model params}
 
@@ -2142,14 +2214,13 @@ source(file = '2_Functions/2_1_Index_computation_20240909.R')
 source(file = '2_Functions/2_2_Lineage_detection_20240909.R')
 source(file = '2_Functions/2_3_Lineage_fitness_20240909.R')
 
-min_year_model <- 1985
-max_year_model <- 2015
+
 
 min_year <- min_year_model
 max_year <- max_year_model
 
 
-options(mc.cores = 14) #Set to 14 cores
+options(mc.cores = 9) #Set to 14 cores
 
 ## Load and compile stan code (this can take a few minutes)
 
@@ -2250,6 +2321,7 @@ Quantify the fitness of each group you can run the code (this steps
 takes approximately 12hrs on 14 cores):
 
 ```{r main model, eval = F, results = 'hide', warning=FALSE, message=FALSE}
+
 
 # Loop over each serotype
 results <- list()
@@ -2372,6 +2444,8 @@ DENV4_loo_df <-  annotate_loo_df(DENV4_loo_df)
 
 ```
 
+
+
 Alternatively load the previous results
 
 ```{r, eval = FALSE}
@@ -2403,6 +2477,7 @@ for (i in seq_along(serotypes)) {
   )
 }
 ```
+
 
 ```{r plot breakpoints, eval = F, results = 'hide', warning=FALSE, message=FALSE}
 
@@ -2519,7 +2594,7 @@ for (i in 1:4) {
   colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
   assign(paste0('colour_lineage_', i), colour_lineage)
   
-  png(filename = paste0("3_Output_Figures/fitness_plot_DENV_", i, "_" , st, "_min_year_", min_year_model, ".png"), width = 1600, height = 1400, res = 300)
+  png(filename = glue("3_Output_Figures/3_5_DENV/3_5_2_Figure 2/Fitness_plot_DENV_{i}_{st}_min_year_{min_year_model}.png"), width = 1600, height = 1400, res = 300)
   
   # Plot fitness data
   plot_fit_data_new(
