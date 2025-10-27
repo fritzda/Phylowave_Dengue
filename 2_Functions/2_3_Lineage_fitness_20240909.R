@@ -96,7 +96,12 @@ read.chains.from.table = function(table){
   return(Chains)
 }
 
-## Functions to plot fits
+
+#' Functions to plot fits
+#' @param data fit data list from fitness model
+#' @param Chains = chain data from fitness model
+#' @param colour_lineage = colors for each group
+#' @returns A Plot of modeled lineage frequency trajectories over time with 95% credible ribbons, overlaid with observed multinomial proportions and CIs.
 plot_fit_data = function(data, Chains, colour_lineage){
   plot(NULL, bty = "n", ylim = c(0,1), xlim = c(min(data$t), max(data$t)), xlab = "Time (years)", ylab = "Proportion")
   pred_freq_chains = array(NA, dim = c(length(Chains$lp__), data$K, data$N))
@@ -133,6 +138,14 @@ plot_fit_data = function(data, Chains, colour_lineage){
            col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
   }
 }
+
+#' Functions to plot fits with controlled x range
+#' @param data fit data list from fitness model
+#' @param Chains = chain data from fitness model
+#' @param colour_lineage = colors for each group
+#' @param xmin = A time value for the x axis minimum 
+#' @param xmax = A time value for the x axis maximum
+#' @returns A Plot of modeled lineage frequency trajectories over time with 95% credible ribbons, overlaid with observed multinomial proportions and CIs.
 plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
   plot(NULL, bty = 'n', ylim = c(0,1), xlim = c(xmin, xmax), yaxt = 'n',
        col = colour_lineage[1], xlab = 'Time (years)', ylab = 'Proportion')
@@ -173,6 +186,7 @@ plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
            col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
   }
 }
+
 plot_fit_data_per_group = function(data, Chains, colour_lineage){
   pred_freq_chains = array(NA, dim = c(length(Chains$lp__), data$K, data$N))
   for(i in 1:data$N){
