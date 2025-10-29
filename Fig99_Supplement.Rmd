@@ -1,0 +1,172 @@
+---
+title: "Fig 99 Supplement"
+author: "Douglas Fritz"
+date: "2025-10-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("ggtree")
+
+# install.packages("remotes")
+# remotes::install_github(repo = "stan-dev/cmdstanr")
+
+library(ape, quiet = T); library(phytools, quiet = T); library(stringr, quiet = T)
+library(MetBrewer, quiet = T); library(parallel, quiet = T); library(mgcv, quiet = T)
+library(cowplot, quiet = T); library(ggplot2, quiet = T); library(ggtree, quiet = T);
+library(cmdstanr, quiet = T); library(binom, quiet = T); library(plotly) ; library(DescTools); 
+library(readr, quiet = T); library(glue, quiet = T)
+library(grid)
+library(png)
+library(vDiveR)
+library(vcfR)
+library(reticulate)
+library(tidyverse)
+library(foreach)
+library(extrafont)
+library(dsmisc)
+library(phangorn)
+library(glue)
+library(readr)
+library(svglite)
+library(here)
+library(svglite)
+library(teal.modules.general)
+library(treedataverse)
+
+# font_import()
+loadfonts(device="all") 
+
+
+
+
+
+```
+
+
+
+```{r global functions}
+source(file = '2_Functions/2_1_Index_computation_20240909.R')
+
+
+```
+
+
+
+```{r load in}
+## Not printed, set directory
+here::i_am("PhylowaveDengue.Rproj")
+st <- format(Sys.time(), "%Y-%m-%d_%H%M")
+
+data_dir <- "4_Output_Data"
+tree_st <- "2025-10-20_1143"
+dataset_with_nodes_st <- tree_st
+
+
+for (d in 1:4) {
+  tree_file <- glue("{data_dir}/tree_DENV{d}_{tree_st}.rds")
+  tree <- read_rds(tree_file)
+  
+  dataset_with_nodes_file <- glue("{data_dir}/dataset_with_nodes_index_DENV{d}_{dataset_with_nodes_st}.rds")
+  dataset_with_nodes <- read_rds(dataset_with_nodes_file)
+  
+  gmat <- dist.nodes.with.names(tree)
+  
+  assign(glue("genetic_distance_mat_{d}"), gmat)
+  assign(glue("tree_DENV{d}"), tree)
+  assign(glue("dataset_with_nodes_{d}"), dataset_with_nodes)
+  
+}
+```
+
+
+
+### Suplement Wind and Timescale robustness: Subplot comparison
+
+```{r subplot comparison}
+
+for (d in 1:4) {
+  
+# Retrieve relevant variables
+  dataset_with_nodes <- get(glue('dataset_with_nodes_{d}'))
+  time_distance_mat <-  get(glue("genetic_distance_mat_{d}"))
+  timed_tree        <-  get(glue("tree_DENV{d}"))
+  
+# Define global plot parameters
+  
+## Length genome 
+genome_length = 11000 # reference  https://nextstrain.org/dengue/all/genome Could also just use 11kb or something highly specific
+## Mutation rate 
+mutation_rate = 7.6e-4
+  #7.6e-4 # mutation rate #ref https://pmc.ncbi.nlm.nih.gov/articles/PMC9030598/
+mutation_rate_sci <- formatC(mutation_rate, format = "e", digits = 2)
+# min_year <- round(min(dataset_with_nodes$time) - 1)
+
+min_year <- 1965
+max_year <- 2015
+  
+# Define wind values (x-axis )
+wind_values <- seq(62, 730, length.out = 5) / 365  # Convert days to years
+
+# Define timescale values (y-axis)
+timescale_values <- seq(2, 20, length.out = 5)  # Years
+
+par(mfrow = c(5, 5), oma = c(2, 2, 2, 2), mar = c(0.5, 0.5, 0.7, 0.5), mgp = c(2, 0.5, 0))  # Adjust margins
+
+for (t in timescale_values) {
+  for (w in wind_values) {
+    # Update parameters
+    timescale <- t
+    wind <- w
+    
+    # Compute the index for the given wind and timescale
+    
+    dataset_with_nodes$index <- compute.index(
+    time_distance_mat = time_distance_mat,
+    timed_tree        = timed_tree,
+    time_window       = wind,
+    metadata          = dataset_with_nodes,
+    mutation_rate     = mutation_rate,
+    timescale         = timescale,
+    genome_length     = genome_length 
+  )
+    
+    # Plot the index
+    plot(dataset_with_nodes$time, 
+         dataset_with_nodes$index, 
+         col = adjustcolor(dataset_with_nodes$clade_color, alpha.f = 1),
+         bty = 'n', xlim = c(min_year, max_year), cex = 0.4,
+         pch = 16, ylim = c(0, 1), 
+         xaxt = 'n', yaxt = 'n',
+         main = paste0("TS: ", timescale, " | W: ", round(wind, 2))
+    )
+    # Add axes for the leftmost and bottom subplots only
+    if (w == wind_values[1]) axis(2, las = 2, lwd = 0.5)  # Left y-axis
+    if (t == timescale_values[5]) axis(1, lwd = 0.5)      # Bottom x-axis
+  }
+}
+
+mtext("Window (years)", side = 1, outer = TRUE, line = 1.2, cex = 0.6)
+mtext("Timescale (years)", side = 2, outer = TRUE, line = 1.2, cex= 0.6)
+mtext(paste0(
+  "Index Plots for Various Timescales and Windows",
+  "Genome Length: ", genome_length,
+  "Mutation Rate: ", mutation_rate_sci), side = 3, outer = TRUE, line = 1, cex = 0.6, font = 1)
+  
+
+# After generating the 5x5 subplot grid
+file_name_subplot <- glue("3_Output_Figures/3_5_DENV/3_5_99_Supplement/index_plots_DENV{d}_{mutation_rate_sci}_TS{min(timescale_values)}-{max(timescale_values)}_W{round(min(wind_values),2)}-{round(max(wind_values),2)}.pdf")
+
+# Save the current plot to a PDF
+dev.copy(pdf, file = file_name_subplot, width = 10, height = 10)  # Adjust dimensions as needed
+dev.off()  # Close the PDF device
+
+}
+
+```
