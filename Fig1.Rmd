@@ -1,0 +1,417 @@
+---
+title: "Figure 1"
+author: "Douglas Fritz"
+date: "2025-10-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("ggtree")
+
+# install.packages("remotes")
+# remotes::install_github(repo = "stan-dev/cmdstanr")
+
+library(ape, quiet = T); library(phytools, quiet = T); library(stringr, quiet = T)
+library(MetBrewer, quiet = T); library(parallel, quiet = T); library(mgcv, quiet = T)
+library(cowplot, quiet = T); library(ggplot2, quiet = T); library(ggtree, quiet = T);
+library(cmdstanr, quiet = T); library(binom, quiet = T); library(plotly) ; library(DescTools); 
+library(readr, quiet = T); library(glue, quiet = T)
+library(grid)
+library(png)
+library(vDiveR)
+library(vcfR)
+library(reticulate)
+library(tidyverse)
+library(foreach)
+library(extrafont)
+library(dsmisc)
+library(phangorn)
+library(glue)
+library(readr)
+library(svglite)
+library(here)
+library(svglite)
+library(teal.modules.general)
+library(treedataverse)
+
+# font_import()
+loadfonts(device="all") 
+
+
+
+```
+
+
+
+
+
+
+```{r global functions}
+source(file = '2_Functions/2_1_Index_computation_20240909.R')
+
+
+```
+
+
+
+
+Here setup and load in data
+```{r here setup, echo = F, eval=T}
+
+## Not printed, set directory
+here::i_am("PhylowaveDengue.Rproj")
+st <- format(Sys.time(), "%Y-%m-%d_%H%M")
+
+data_dir <- "4_Output_Data"
+tree_st <- "2025-10-20_1143"
+dataset_with_nodes_st <- tree_st
+
+for (d in 1:4) {
+  
+  tree_file <- glue("{data_dir}/tree_DENV{d}_{tree_st}.rds")
+  tree <- read_rds(tree_file)
+  
+  dataset_with_nodes_file <- glue("{data_dir}/dataset_with_nodes_index_DENV{d}_{dataset_with_nodes_st}.rds")
+  dataset_with_nodes <- read_rds(dataset_with_nodes_file)
+  
+  gmat <- dist.nodes.with.names(tree)
+  
+  names_seqs <- tree$tip.label
+  n_seq <- length(names_seqs)
+  
+  # Parse YEAR 
+  times_seqs  <- suppressWarnings(as.numeric(stringr::word(names_seqs, 1, sep = stringr::fixed("_"))))
+  
+  # Root index: tips are 1..Ntip, so root is Ntip + 1 (ape convention)
+  nroot <- length(tree$tip.label) + 1
+  distance_to_root <- gmat[nroot, ]
+
+  # Use a reference tip that exists in the distance vector names (robust if first entry isn't a tip)
+  ref_tip <- intersect(names_seqs, names(distance_to_root))[1]
+
+  root_height <- times_seqs[which(names_seqs == ref_tip)] - distance_to_root[ref_tip]
+
+  # Internal nodes are indexed right after tips, sets height in time relative to tree root
+  nodes_height <- root_height + distance_to_root[n_seq + (1:(n_seq - 1))] 
+
+  
+  assign(glue("names_seqs_{d}"), names_seqs )
+  assign(glue("n_seq_{d}"), length(names_seqs ))
+  assign(glue("times_seqs_{d}"), times_seqs)
+  assign(glue("nroot_{d}"), nroot)
+  assign(glue("distance_to_root_{d}"), distance_to_root)
+  assign(glue("root_height_{d}"), root_height)
+  assign(glue("nodes_height_{d}"), nodes_height)
+  assign(glue("genetic_distance_mat_{d}"), gmat)
+  assign(glue("tree_DENV{d}"), tree)
+  assign(glue("dataset_with_nodes_{d}"), dataset_with_nodes)
+  
+}
+
+```
+
+
+
+
+#### Plot tree & index below, with colors from clades
+
+First, generate the color key, based on the Nextstrain clade of each
+sequence.
+
+```{r old clade color key, eval=T}
+
+for (d in 1:4) {
+  
+  tree <- get(paste0("tree_DENV", d))
+  dataset_with_nodes <- get(paste0("dataset_with_nodes_", d))
+  
+  colors_of_clades = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes$clade_inferred))),
+                            type="continuous")
+  
+  
+  dataset_with_nodes$clade_color = as.factor(dataset_with_nodes$clade_inferred)
+  clade_labels = levels(dataset_with_nodes$clade_color)
+  levels(dataset_with_nodes$clade_color) = colors_of_clades
+  dataset_with_nodes$clade_color = as.character(dataset_with_nodes$clade_color)
+  dataset_with_nodes$clade_color[is.na(dataset_with_nodes$clade_color)] <- "grey"
+  
+  assign(paste0("clade_labels_", d), clade_labels)
+  assign(paste0("colors_clade_", d), colors_of_clades)
+  assign(paste0("dataset_with_nodes_", d), dataset_with_nodes)
+}
+
+
+```
+
+# Figure 1 Plot tree & index below, with colors from clades
+
+### TODO: Maxtime or set all to 1965?
+
+```{r clade and index plots old clades}
+
+
+# Plotting old tree and clades
+old_tree_plot <- function(
+    dengue = 1:4,
+    min_year = NULL,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Clades_plot_DENV_%d.svg",
+    width = 8,
+    height = 5){
+
+  for (d in dengue) {
+  # Retrieve relevant variables
+    tree <- get(paste0('tree_DENV', d)) 
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    clade_labels <- get(paste0('clade_labels_', d))
+    colors_clade <- get(paste0('colors_clade_', d))
+    
+    #need new dummy variable to not overight in the loop, is rounded lowest year if NULL and is user specified in else occasion
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+    
+  
+    
+     # 1 panel clades plot setup
+    file_path <- file.path(output_dir, sprintf(filename, d))
+    svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    
+    ## Tree plot
+    plot(tree, show.tip.label = FALSE, 
+         edge.color = 'grey', edge.width = 0.25,
+         x.lim = c(min_year_d, max_year) - root_height
+         
+    )
+    tiplabels(pch = 16, col = dataset_with_nodes$clade_color, cex = 0.3
+              )
+    axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+                 at_axis = seq(min_year_d, max_year, 5) - root_height,
+                 lab_axis = seq(min_year_d, max_year, 5), lwd = 0.5
+                 )
+    
+    title(main = paste0(
+      "DENV", d, "\n"
+      # ,"Genome Length: ", genome_length, " bp\n",
+      # "Mutation Rate: ", mutation_rate_sci, "\n",
+      # "Timescale: ", timescale, " years \n",
+      # "Window: ", round(wind, 2), " years"
+    ), line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+     
+    
+  }
+}
+
+
+
+
+
+old_tree_plot(
+    dengue = 1,
+    min_year = NULL,  #set to the lowest year in the tree
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Clades_plot_alltime_DENV_%d.svg",
+    width = 8,
+    height = 5
+)
+
+
+#plotting since 1965 
+old_tree_plot(
+    dengue = 1:4,
+    min_year = 1965,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Clades_plot_1965start_DENV_%d.svg",
+    width = 8,
+    height = 5
+)
+
+
+
+
+```
+
+```{r old_index_plot}
+
+old_index_plot <- function(
+    dengue = 1:4,
+    min_year = NULL,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Index_plot_DENV_%d.svg",
+    width = 8,
+    height = 5){
+  
+  for (d in dengue) {
+    # Retrieve relevant variables
+    tree <- get(paste0('tree_DENV', d)) 
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    clade_labels <- get(paste0('clade_labels_', d))
+    colors_clade <- get(paste0('colors_clade_', d))
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year
+    
+    
+     # 1 panel index plot setup
+    file_path <- file.path(output_dir, sprintf(filename, d))
+    svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    ## Index plot
+    plot(dataset_with_nodes$time, 
+         dataset_with_nodes$index, 
+         col = adjustcolor(dataset_with_nodes$clade_color, alpha.f = 1),
+         bty = 'n', xlim = c(min_year_d, max_year), cex = 0.4,
+         pch = 16, ylim = c(0, 1), 
+         ylab = 'Index', xlab = 'Time (years)', xaxt = 'n', yaxt = 'n')
+    
+    title(main = paste0(
+      "DENV", d, " \n"
+    ), 
+    line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+    
+    axis(2, las = 2, lwd = 0.5)
+    axis(1, lwd = 0.5)
+    
+    # Color key
+    legend('topright', 
+           legend = clade_labels,
+           fill = colors_clade, border = colors_clade,
+           cex = 0.5, bty = 'n', ncol = 5)
+  
+    
+  }
+}
+
+
+
+
+old_index_plot(
+    dengue = 1:4,
+    min_year = NULL,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Index_plot_alltime_DENV_%d.svg",
+    width = 8,
+    height = 5)
+
+#plotting since 1965 
+old_index_plot(
+    dengue = 1:4,
+    min_year = 1965,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Index_plot_1965start_DENV_%d.svg",
+    width = 8,
+    height = 5)
+
+
+```
+
+```{r old_clade_and_index_panel_plot}
+old_clade_and_index_panel_plot <- function(
+    dengue = 1:4,
+    min_year = NULL,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Clades_and_Index_panel_plot_DENV_%d.svg",
+    width = 8,
+    height = 10){
+  
+  for (d in dengue) {
+    # Retrieve relevant variables
+    tree <- get(paste0('tree_DENV', d)) 
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    clade_labels <- get(paste0('clade_labels_', d))
+    colors_clade <- get(paste0('colors_clade_', d))
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year
+    
+     # 1 panel index plot setup
+    file_path <- file.path(output_dir, sprintf(filename, d))
+    svglite(filename = file_path, width = width, height = height)
+
+  
+  # Two-panel plot setup
+  par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+  
+  ## Tree plot
+  plot(tree, show.tip.label = FALSE, 
+       edge.color = 'grey', edge.width = 0.25,
+       x.lim = c(min_year_d, max_year) - root_height)
+  tiplabels(pch = 16, col = dataset_with_nodes$clade_color, cex = 0.3)
+  axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+               at_axis = seq(min_year_d, max_year, 0.5) - root_height,
+               lab_axis = seq(min_year_d, max_year, 0.5), lwd = 0.5)
+  
+  title(main = paste0(
+    "DENV", d, "\n",
+    "Genome Length: ", genome_length, " bp\n",
+    "Mutation Rate: ", mutation_rate_sci, "\n",
+    "Timescale: ", timescale, " years \n",
+    "Window: ", round(wind, 2), " years"
+  ), line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+  
+  ## Index plot
+  plot(dataset_with_nodes$time, 
+       dataset_with_nodes$index, 
+       col = adjustcolor(dataset_with_nodes$clade_color, alpha.f = 1),
+       bty = 'n', xlim = c(min_year_d, max_year), cex = 0.4,
+       pch = 16, ylim = c(0, 1), 
+       ylab = 'Index', xlab = 'Time (years)', xaxt = 'n', yaxt = 'n')
+  
+  title(main = paste0(
+    "DENV", d, " \n",
+    "Genome Length: ", genome_length, " bp\n",
+    "Mutation Rate: ", mutation_rate_sci, "\n",
+    "Timescale: ", timescale, " years \n",
+    "Window: ", round(wind, 2), " years"
+  ), line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+  axis(2, las = 2, lwd = 0.5)
+  axis(1, lwd = 0.5)
+  
+  # Color key
+  legend('topright', 
+         legend = clade_labels,
+         fill = colors_clade, border = colors_clade,
+         cex = 0.5, bty = 'n', ncol = 5)
+  
+  
+  # Save the plot
+  
+  dev.off()
+  }
+}
+
+ old_clade_and_index_panel_plot(
+    dengue = 1:4,
+    min_year = NULL,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Clades_and_Index_panel_plot_alltime_DENV_%d.svg",
+    width = 8,
+    height = 10)
+ 
+ 
+ 
+#plotting since 1965 
+old_clade_and_index_panel_plot(
+    dengue = 1:4,
+    min_year = 1965,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Clades_and_Index_panel_plot_1965start_DENV_%d.svg",
+    width = 8,
+    height = 10)
+
+```
+
