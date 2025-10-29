@@ -37,6 +37,8 @@ py_run_string("import kneeliverse, numpy as np, pandas as pd; print('kneeliverse
 
 ```
 
+# RUN THIS PART MANUALLY STEPPING THROUGH D1-D4
+
 ```{r}
 
 output_dir <- "3_Output_Figures/3_5_DENV/3_5_99_Supplement"
@@ -157,4 +159,181 @@ ggsave(file.path(output_dir, glue("{tag}_knees_log.png")), Log_plot, width = 11,
 
 
 ```
+
+
+### STOP Manual RUN ^^^
+
+
+
+
+
+#Number of Groups Selection Plots (AIC, BIC, Deviance, Knees)
+
+Look at the deviance explained by the models with different number of
+groups.To decide on this many groups, we initially ran the algorithm up to 30
+groups.
+
+How many lineages to choose is a practical question not something that
+is easy to ground in math. Elbow plot analysis is somewhat arbitrary.
+Most plots have two elbows: First elbow is the known dynamics, the second elbow would include groups that are more exploratory.
+Stopping at the first linear point on horizontal line.
+
+We also Use knees to detect elbow.
+
+###TODO Why is D3 log less than 1 (log1 = 0)
+
+```{r linlog group plot}
+max_groups_found_line_3 = 6 #Knees + 1 say 9
+max_groups_found_line_2 = 3 #Knees + 1 say 9
+max_groups_found_line_1 = 8 #Knees + 1 say 10
+max_groups_found_line_4 = 4 #Knees + 1 say 4
+
+for (i in 1:4) {
+  
+ svglite(sprintf("3_Output_Figures/3_5_DENV/3_5_99_Supplement/DENV_%d_linlog.svg", i), width = 12, height = 6)
+  par(mfrow = c(1, 2), oma = c(2, 2, 1, 1), mar = c(2, 2, 2, 0.5),
+      mgp = c(0.75, 0.25, 0), cex.axis = 0.5, cex.lab = 0.5,
+      cex.main = 0.7, cex.sub = 0.5)
+  ## Dynamically retrieve the potential splits for the current group
+  potential_splits <- get(paste0('potential_splits_', i))
+  max_groups_found_line_i <- get(paste0('max_groups_found_line_', i))
+  
+  ## Dynamically create or update the data frame for the current group
+  df_explained_dev_i <- data.frame(
+    'N_groups' = 0:length(potential_splits$best_dev_explained),
+    'Non_explained_deviance' = (1 - c(potential_splits$first_dev, potential_splits$best_dev_explained)),
+    'Non_explained_deviance_log' = log10(1 - c(potential_splits$first_dev, potential_splits$best_dev_explained))
+  )
+  
+  ## Linear scale plot
+  plot(df_explained_dev_i$N_groups,
+       df_explained_dev_i$Non_explained_deviance,
+       bty = 'n', ylim = c(0, 1),
+       xaxt = 'n', yaxt = 'n', pch = 16, 
+       main = paste('Linear scale DENV', i), cex = 0.5,
+       ylab = 'Non-explained deviance (%)', xlab = 'Number of groups')
+  axis(1, lwd = 0.5, tck = -0.02)
+  axis(2, las = 2, at = seq(0, 1, 0.1), labels = seq(0, 1, 0.1) * 100, lwd = 0.5, tck = -0.02)
+  abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
+  
+  ## Log scale plot
+  plot(df_explained_dev_i$N_groups,
+       df_explained_dev_i$Non_explained_deviance,
+       log = 'y', # This is log10
+       ylim = c(0.0001, 1),
+       bty = 'n',
+       xaxt = 'n', yaxt = 'n', pch = 16, 
+       main = paste('Log scale DENV', i), cex = 0.5,
+       ylab = 'Non-explained deviance (%) - log scale', xlab = 'Number of groups')
+  axis(1, lwd = 0.5, tck = -0.02)
+  yticks <- c(0.0001, 0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1)
+  yticks <- yticks[yticks >= 0.0001 & yticks <= 1]
+  axis(2, las = 2, at = yticks, labels = yticks * 100, lwd = 0.5, tck = -0.02)
+  abline(v = max_groups_found_line_i, col = "purple", lty = 2, lwd = 0.5)
+  
+  dev.off()
+}
+
+
+```
+
+```{r AIC BIC plots}
+
+for (i in 1:4) {
+  
+  
+  potential_splits <- get(paste0('potential_splits_', i))
+  mods <- potential_splits[["best_mod"]]
+  output_dir <- "3_Output_Figures/3_5_DENV/3_5_99_Supplement"
+
+df <- tibble(
+  step = seq_along(mods),
+  AIC  = sapply(mods, AIC),
+  BIC = sapply(mods, BIC),
+  dev  = sapply(mods, function(m) summary(m)$dev.expl)
+)
+
+df <- df %>%
+  mutate(
+    dev_pct  = dev * 100,
+    nonexpl  = pmax(1 - dev, 1e-8)
+  )
+
+kmin <- df$step[which.min(df$AIC)]
+kmin_BIC <- df$step[which.min(df$BIC)]
+
+p1 <- ggplot(df, aes(step, AIC)) +
+  geom_line() + geom_point() +
+  geom_vline(xintercept = kmin, linetype = 2, color = "#012169aa") +
+  labs(x = "Number of groups (step index)", y = "AIC",
+       title = "Model AIC across tested splits",
+       subtitle = sprintf("Min AIC at k=%d (AIC=%.1f)", kmin, df$AIC[kmin]))
+
+p2 <- ggplot(df, aes(step, dev_pct)) +
+  geom_line() + geom_point() +
+  labs(x = "Number of groups (step index)", y = "Deviance explained (%)",
+       title = glue("DENV{i} Deviance across tested splits"))
+
+
+p3 <- ggplot(df, aes(step, BIC)) +
+  geom_line() + geom_point() +
+  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#C8102Eaa") +
+  labs(x = "Number of groups (step index)", y = "BIC",
+       title = glue("DENV{i} Model BIC across tested splits"),
+       subtitle = sprintf("Min BIC at k=%d (BIC=%.1f)", kmin_BIC, df$BIC[kmin_BIC])) 
+
+p4 <- ggplot(df, aes(step)) +
+  geom_line(aes(y = AIC), colour = "#012169FF") + geom_point(aes(y = AIC), colour = "#012169FF") +
+  geom_line(aes(y = BIC), colour = "#C8102EFF") + geom_point(aes(y = BIC), colour = "#C8102EFF") +
+  geom_vline(xintercept = kmin, linetype = 2, color = "#012169aa") +
+  geom_vline(xintercept = kmin_BIC, linetype = 2, color = "#C8102Eaa") +
+  labs(x = "Number of groups (step index)", y = "Value",
+       title = glue("DENV{i} Model AIC & BIC across tested splits"),
+       subtitle = glue::glue("Min AIC at k={kmin} (AIC={round(df$AIC[kmin],1)})\n",
+                      "Min BIC at k={kmin_BIC} (BIC={round(df$BIC[kmin_BIC],1)})") )
+
+
+p6 <- ggplot(df, aes(step, nonexpl)) +
+  geom_line() + geom_point() +
+  scale_y_continuous(
+    trans  = "log10",
+    breaks = scales::log_breaks(n = 6),                       # data-aware log ticks
+    labels = function(x) scales::percent(x, accuracy = 0.1)   # show as %
+  ) +
+  labs(x = "Number of groups (step index)", y = "Non-explained Deviance (%) - log scale",
+       title = glue("DENV{i} Non-explained Deviance explained across tested splits (log)"))
+
+p7 <- ggplot(df, aes(step, nonexpl*100)) +
+  geom_line() + geom_point() +
+  labs(x = "Number of groups (step index)", y = "Non-explained Deviance (%)",
+       title = glue("DENV{i} Non-explained Deviance explained across tested splits"))
+
+
+
+p8 <- p2 + p6 + p7
+
+
+
+p5 <- p4 + p6 + p7
+
+print(p1); print(p2); print(p3); print(p4); print(p5); print(p6); print(p7); print(p8)
+
+# save if you want
+
+# ggsave(glue("{output_dir}/aic_by_step_DENV{i}.png"), p1, width = 6, height = 4, dpi = 300)
+# ggsave(glue("{output_dir}/devexp_by_step_DENV{i}.png"), p2, width = 6, height = 4, dpi = 300)
+# ggsave(glue("{output_dir}/bic_by_step_DENV{i}.png"), p3, width = 6, height = 4, dpi = 300)
+ggsave(glue("{output_dir}/AIC_BIC_devexp_by_step_DENV{i}.png"), p5, width = 8, height = 11, dpi = 300)
+ggsave(glue("{output_dir}/Devexp_by_step_DENV{i}.png"), p8, width = 8, height = 11, dpi = 300)
+
+}
+
+```
+
+Optimize the number of groups: set the minimum number of sequences per
+group to 30, with a minimum frequency of 1%.
+
+#TODO: Decide if we should do more groups, and do sensitivty analysis on
+differnt numbers of groups
+
 
