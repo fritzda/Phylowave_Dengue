@@ -66,6 +66,7 @@ library(here)
 library(svglite)
 library(teal.modules.general)
 library(treedataverse)
+library(sessioninfo)
 
 # font_import()
 loadfonts(device="all") 
@@ -665,7 +666,7 @@ for (d in 1:4) {
 ```
 
 
-## Find DENGUE clades based on index dynamics
+# Find DENGUE clades based on index dynamics: Potential Splits
 
 #### Run the lineage detection algorithm on DENGUE data
 
@@ -801,6 +802,8 @@ the deviance analysis
 
 DENV3 Run the detection function (this steps takes approximately \<10
 min on 2 cores):
+
+
 
 ```{r potential splits 3, eval=FALSE, results = 'hide', warning=FALSE, message=FALSE}
 start_time = Sys.time()
@@ -1059,6 +1062,10 @@ for (d in 1:4){
 
 ```
 
+
+
+# Loading Splits
+
 Instead, you may wish to load or write the results:
 
 ```{r, eval = T}
@@ -1076,6 +1083,14 @@ potential_splits_1 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasona
 potential_splits_2 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV2_timescale7_wind1_2025-10-20_1143.rds")
 potential_splits_3 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV3_timescale7_wind1_2025-10-20_1143.rds")
 potential_splits_4 <- readRDS("4_Output_Data/Max_groups_potential_splits_reasonable_DENV4_timescale7_wind1_2025-10-20_1143.rds")
+
+
+# Check params stored with potential splits to check provenance 
+attr(potential_splits_1, "params", exact = TRUE)
+attr(potential_splits_2, "params", exact = TRUE)
+attr(potential_splits_3, "params", exact = TRUE)
+attr(potential_splits_4, "params", exact = TRUE)
+
 
 dataset_with_nodes_1 <- readRDS("4_Output_Data/dataset_with_nodes_index_DENV1_2025-10-20_1143.rds")
 dataset_with_nodes_2 <- readRDS("4_Output_Data/dataset_with_nodes_index_DENV2_2025-10-20_1143.rds")
@@ -1138,11 +1153,86 @@ for (i in 1:4) {
     group_freq_threshold = 0.01
   )
   
+  ## Add provenance params
+  attr(split, "params") <- list(
+    head_note = "Merged group splits with merging",
+    created_utc = format(Sys.time(), tz = "UTC"),
+    git_commit = Sys.getenv("GIT_COMMIT", unset = NA_character_),
+    dengue = d,
+    group_count_threshold = 30,
+    group_freq_threshold = 0.01,
+    metadata_dim = dim(dataset_with_nodes),
+    metadata_columns = colnames(dataset_with_nodes),
+    initial_splits_params = attr(potential_splits, "params")
+  )
+  
+  
   ## Dynamically assign the result to split_1, split_2, etc.
   assign(paste0('split_', i), split)
 }
 
+
+# Unmerged groups, all groups form potential splits included
+for (i in 1:4) {
+  ## Dynamically retrieve the relevant timed tree and dataset_with_nodes
+  timed_tree <- get(paste0('tree_DENV', i))
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  potential_splits <- get(paste0('potential_splits_', i))
+  
+  ## Call the merge.groups function
+  split <- merge.groups(
+    timed_tree = timed_tree,
+    metadata = dataset_with_nodes,
+    initial_splits = potential_splits$potential_splits,
+    group_count_threshold = 0,
+    group_freq_threshold = 0.0000001
+  )
+  
+  ## Add provenance params
+  attr(split, "params") <- list(
+    head_note = "Merged group splits with little to no merging",
+    created_utc = format(Sys.time(), tz = "UTC"),
+    git_commit = Sys.getenv("GIT_COMMIT", unset = NA_character_),
+    dengue = d,
+    group_count_threshold = 0,
+    group_freq_threshold = 0.0000001,
+    metadata_dim = dim(dataset_with_nodes),
+    metadata_columns = colnames(dataset_with_nodes),
+    initial_splits_params = attr(potential_splits, "params")
+  )
+  
+  ## Dynamically assign the result to split_1, split_2, etc.
+  assign(paste0('split_max_groups_', i), split)
+  
+  
+}
+
+
 ```
+
+
+##Save splits 
+
+```{r save splits}
+
+### Save splits
+for (d in 1:4){
+
+created_utc = format(Sys.time(), tz = "UTC", "%Y-%m-%d_%H%M")
+splits_merged <- get(glue("split_{d}"))
+splits_unmerged <- get(glue("split_max_groups_{d}"))
+
+splits_merged_file_name <- glue("4_Output_Data/merged_splits_DENV{d}_{created_utc}.rds")
+splits_unmerged_file_name <- glue("4_Output_Data/unmerged_splits_DENV{d}_{created_utc}.rds")
+
+write_rds(splits_merged, splits_merged_file_name)
+write_rds(splits_unmerged, splits_unmerged_file_name)
+
+
+}
+
+```
+
 
 Label sequences with these new groups, and assign a color to each of
 them.
@@ -1203,79 +1293,7 @@ for (i in 1:4) {
 
 ```
 
-#### Plot tree & index below, with colors from index-defined groups
 
-Plot the tree and index colored with the new groups:
-
-```{r, eval = T}
-
-# TODO: this works but it's clunky to save as other formats. Ideally you'd save this via http://stackoverflow.com/questions/48132169/export-r-plot-to-multiple-formats
-# OR you'd convert to ggplot and use ggsave
-
-
-for (i in 1:4) {
-  ## Dynamically retrieve the relevant variables
-  tree <- get(paste0('tree_DENV', i))
-  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
-  root_height <- get(paste0('root_height_', i))
-  min_year <- get('min_year')  # Assuming min_year and max_year are global
-  max_year <- get('max_year')
-  name_groups <- get(paste0('name_groups_', i))
-  colors_groups <- get(paste0('colors_groups_', i)) 
-  genome_length <- get('genome_length')  # Global variables
-  mutation_rate_sci <- get('mutation_rate_sci')
-  timescale <- get('timescale')
-  wind <- get('wind')
-  
-  ## Plotting
-  
-  svglite(filename = glue("3_Output_Figures/3_5_DENV/3_5_1_Figure 1/DENV{i}_New_Clades_MaxGroups_{st}.svg" ), width = 8, height = 10)
-  
-  par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
-  
-  ## Tree
-  tree_plot <- plot(tree, show.tip.label = FALSE, 
-                    edge.color = 'grey', edge.width = 0.25,
-                    x.lim = c(min_year, max_year) - root_height)
-  tiplabels(pch = 16, col = dataset_with_nodes$group_color, cex = 0.3)
-  axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
-               at_axis = seq(min_year, max_year, 0.5) - root_height,
-               lab_axis = seq(min_year, max_year, 0.5), lwd = 0.5)
-  
-  ## Index colored by group
-  index_plot <- plot(dataset_with_nodes$time, 
-                     dataset_with_nodes$index, 
-                     col = adjustcolor(dataset_with_nodes$group_color, alpha.f = 1),
-                     bty = 'n', xlim = c(min_year, max_year), cex = 0.5,
-                     pch = 16, ylab = 'Index', xlab = 'Time (years)', yaxt = 'n')
-  title(main = paste0(
-    "DENV_", i, "\n",
-    "Genome Length: ", genome_length, " bp\n",
-    "Mutation Rate: ", mutation_rate_sci, "\n",
-    "Timescale: ", timescale, " years \n",
-    "Window: ", round(wind, 2), " years"
-  ), line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
-  
-  axis(2, las = 2, lwd = 0.5)
-  axis(1, lwd = 0.5)
-  
-  
-  ## Color key
-  legend('topright', 
-         legend = name_groups,
-         fill = colors_groups, border = colors_groups,
-         cex = 0.5, bty = 'n', ncol = 5)
-  
-  ## Save
-  dev.off()
-}
-
-
-
-
-
-
-```
 
 #### Plot index with its splines
 
