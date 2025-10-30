@@ -262,7 +262,7 @@ attr(potential_splits_4, "params", exact = TRUE)
 
 ```
 
-
+## Plot index w splines
 
 ```{r Plot index w splines}
 ## Find group colours
@@ -377,5 +377,205 @@ spline_on_index_plot(
     pdf_per_page_rows = 4 )
 
 
+```
+
+## Plot tree w groupings per model runs 
+
+```{r plot tree at key model step}
+
+plot_tree_coloured_by_step <- function(
+  d,
+  step = NULL,                           # e.g. NULL (=final), or an integer step
+  potential_split_name = "potential_splits_%d",
+  dataset_with_nodes_prefix = "dataset_with_nodes_",
+  tree_prefix               = "tree_DENV",
+  root_height_prefix        = "root_height_",
+  palette_name = "Cross",
+  min_year = NULL, max_year = 2015,
+  file = NULL, width = 8, height = 5
+){
+  # --- fetch inputs (local; won’t overwrite globals) ---
+  dataset_with_nodes <- get(paste0(dataset_with_nodes_prefix, d))
+  potential_splits   <- get(sprintf(potential_split_name, d))
+  tree               <- get(paste0(tree_prefix, d))
+  root_height        <- get(paste0(root_height_prefix, d))
+
+  k <- length(potential_splits$best_mod)
+  if (k == 0) stop("No models in potential_splits for DENV", d)
+  j <- if (is.null(step)) k else {
+    if (step < 1 || step > k) stop("`step` must be in 1..", k)
+    step
+  }
+
+  # --- groups & colours for step j ---
+  grp_j <- as.factor(potential_splits$best_groups[[j]])     # one per row of metadata
+  # tips only
+  tips_idx <- dataset_with_nodes$is.node == "no"
+  grp_tips <- grp_j[tips_idx]
+  ng  <- nlevels(grp_j)
+  pal <- MetBrewer::met.brewer(palette_name, ng, type = "continuous")
+  tip_cols <- pal[as.integer(grp_tips)]                     # length == number of tips
+
+  # OPTIONAL: if your tip order in dataset != tree$tip.label order, re-order colours by a key
+  # e.g., if dataset_with_nodes has a column with the tip labels (say `label`)
+  # tip_order <- match(tree$tip.label, as.character(dataset_with_nodes$label[tips_idx]))
+  # tip_cols  <- tip_cols[tip_order]
+
+  # --- x-axis snapping to 5-year ticks, and transform by root_height for tree coords ---
+  round_down5 <- function(x) floor(x/5)*5
+  round_up5   <- function(x) ceiling(x/5)*5
+  min_data <- min(dataset_with_nodes$time, na.rm = TRUE)
+  max_data <- max(dataset_with_nodes$time, na.rm = TRUE)
+  min5 <- round_down5(if (is.null(min_year)) min_data else min_year)
+  max5 <- round_up5(  if (is.null(max_year)) max_data else max_year)
+  ticks <- seq(min5, max5, by = 5)
+
+  if (!is.null(file)) {
+    dir.create(dirname(file), recursive = TRUE, showWarnings = FALSE)
+    svglite::svglite(file, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)
+  }
+
+  par(mfrow = c(1,1), oma = c(0,0,0,0), mar = c(4,4,0,0), xaxs = "i")
+  ape::plot.phylo(
+    tree, show.tip.label = FALSE,
+    edge.color = "grey", edge.width = 0.25,
+    x.lim = c(min5, max5) - root_height       # subtract from BOTH ends
+  )
+  ape::tiplabels(pch = 16, col = tip_cols, cex = 0.3)
+  axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+               at_axis = ticks - root_height, lab_axis = ticks, lwd = 0.5)
+
+  invisible(list(step = j, tip_cols = tip_cols))
+}
+
+plot_tree_coloured_by_step(
+  d = d,
+  step = 3,
+  file = file.path(output_dir, sprintf("DENV%d_tree_step_%02d_%s.svg", d, 3, st))
+)
+
+```
+
+
+```{r plot_trees_by_step}
+plot_trees_coloured_by_step <- function(
+  d,
+  potential_split_name      = "potential_splits_%d",
+  dataset_with_nodes_prefix = "dataset_with_nodes_",
+  tree_prefix               = "tree_DENV",
+  root_height_prefix        = "root_height_",
+  palette_name = "Cross",
+  min_year = NULL, 
+  max_year = 2015,
+  # output controls
+  paginate = FALSE,                 # TRUE = multi-page PDF, FALSE = one big SVG
+  file  = "DENV{d}_tree_steps_{st}",
+  st        = format(Sys.time(), tz = "UTC", "%Y-%m-%d_%H%M"),
+  out_dir   = "3_Output_Figures/3_5_DENV/3_5_99_Supplement",
+  # layout sizing
+  ncol = 6,                         # columns per grid (per page if paginate=TRUE)
+  nrow = NULL,                      # rows per grid (if NULL, computed from k & ncol when paginate=FALSE)
+  cell_w = 4, cell_h = 3       # inches per panel
+){
+  # ---- fetch inputs ----
+  ds <- get(paste0(dataset_with_nodes_prefix, d), inherits = TRUE)
+  ps <- get(sprintf(potential_split_name, d),     inherits = TRUE)
+  tr <- get(paste0(tree_prefix, d),               inherits = TRUE)
+  rh <- get(paste0(root_height_prefix, d),        inherits = TRUE)
+
+  k <- length(ps$best_mod)
+  if (k == 0) stop("No models in potential_splits for DENV", d)
+
+  # ---- 5-year axis snapping once ----
+  rd5 <- function(x) floor(x/5)*5; ru5 <- function(x) ceiling(x/5)*5
+  min5 <- rd5(if (is.null(min_year)) min(ds$time, na.rm=TRUE) else min_year)
+  max5 <- ru5(if (is.null(max_year)) max(ds$time, na.rm=TRUE) else max_year)
+  ticks <- seq(min5, max5, by = 5)
+
+  dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+  stem <- gsub("\\{d\\}", d, gsub("\\{st\\}", st, file))
+
+  # ---- choose mode ----
+  if (isTRUE(paginate)) {
+    # Multi-page PDF: draw up to ncol*nrow steps per page
+    if (is.null(nrow)) stop("When paginate=TRUE, please set `nrow`.")
+    per_page <- ncol * nrow
+    pages <- split(seq_len(k), ceiling(seq_along(seq_len(k)) / per_page))
+
+    file <- file.path(out_dir, paste0(stem, ".pdf"))
+    grDevices::pdf(file, width = ncol * cell_w, height = nrow * cell_h, onefile = TRUE)
+    on.exit(grDevices::dev.off(), add = TRUE)
+
+    par(oma = c(0,0,2,0), xaxs = "i")
+    for (pg in seq_along(pages)) {
+      par(mfrow = c(nrow, ncol), mar = c(3.2, 3, 1, 1))
+      for (j in pages[[pg]]) {
+        g   <- as.factor(ps$best_groups[[j]])
+        pal <- MetBrewer::met.brewer(palette_name, nlevels(g), type = "continuous")
+        tips_idx <- ds$is.node == "no"
+        tip_cols <- pal[as.integer(g[tips_idx])]
+
+        ape::plot.phylo(tr, show.tip.label = FALSE,
+                        edge.color = "grey", edge.width = 0.25,
+                        x.lim = c(min5, max5) - rh)
+        ape::tiplabels(pch = 16, col = tip_cols, cex = 0.28)
+        axisPhylo_NL(side = 1, root.time = rh, backward = FALSE,
+                     at_axis = ticks - rh, lab_axis = ticks, lwd = 0.5)
+        mtext(sprintf("Step %d", j), side = 3, line = 0.2, cex = 0.8)
+      }
+      mtext(sprintf("DENV%d — tip colours by model step (page %d)", d, pg),
+            side = 3, outer = TRUE, line = 0.2, cex = 1)
+    }
+  } else {
+    # One giant SVG: all steps in one grid
+    if (is.null(nrow)) nrow <- ceiling(k / ncol)
+
+    file <- file.path(out_dir, paste0(stem, ".svg"))
+    svglite::svglite(file, width = ncol * cell_w, height = nrow * cell_h)
+    on.exit(grDevices::dev.off(), add = TRUE)
+
+    par(oma = c(0,0,2,0), mar = c(3.2, 3, 1, 1), mfrow = c(nrow, ncol), xaxs = "i")
+    for (j in seq_len(k)) {
+      g   <- as.factor(ps$best_groups[[j]])
+      pal <- MetBrewer::met.brewer(palette_name, nlevels(g), type = "continuous")
+      tips_idx <- ds$is.node == "no"
+      tip_cols <- pal[as.integer(g[tips_idx])]
+
+      ape::plot.phylo(tr, show.tip.label = FALSE,
+                      edge.color = "grey", edge.width = 0.25,
+                      x.lim = c(min5, max5) - rh)
+      ape::tiplabels(pch = 16, col = tip_cols, cex = 0.28)
+      axisPhylo_NL(side = 1, root.time = rh, backward = FALSE,
+                   at_axis = ticks - rh, lab_axis = ticks, lwd = 0.5)
+      mtext(sprintf("Step %d", j), side = 3, line = 0.2, cex = 0.8)
+    }
+    mtext(sprintf("DENV%d — tip colours by model step", d), side = 3, outer = TRUE, line = 0.2, cex = 1)
+  }
+
+  message("Wrote: ", file)
+  invisible(file)
+}
+
+
+plot_trees_coloured_by_step(
+  d = 4 ,
+  potential_split_name      = "potential_splits_%d",
+  dataset_with_nodes_prefix = "dataset_with_nodes_",
+  tree_prefix               = "tree_DENV",
+  root_height_prefix        = "root_height_",
+  palette_name = "Cross",
+  min_year = 1965, 
+  max_year = 2015,
+  # output controls
+  paginate = FALSE,                 # TRUE = multi-page PDF, FALSE = one big SVG
+  file  = "DENV{d}_tree_steps_{st}",
+  st        = format(Sys.time(), tz = "UTC", "%Y-%m-%d_%H%M"),
+  out_dir   = "3_Output_Figures/3_5_DENV/3_5_99_Supplement",
+  # layout sizing
+  ncol = 3,                         # columns per grid (per page if paginate=TRUE)
+  nrow = NULL,                      # rows per grid (if NULL, computed from k & ncol when paginate=FALSE)
+  cell_w = 4, cell_h = 3       # inches per panel
+)
 ```
 
