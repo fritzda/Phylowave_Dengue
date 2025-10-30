@@ -1192,7 +1192,7 @@ for (i in 1:4) {
   attr(split, "params") <- list(
     head_note = "Merged group splits with little to no merging",
     created_utc = format(Sys.time(), tz = "UTC"),
-    git_commit = Sys.getenv("GIT_COMMIT", unset = NA_character_),
+    git_commit = system("git rev-parse --short HEAD", intern = TRUE),
     dengue = d,
     group_count_threshold = 0,
     group_freq_threshold = 0.0000001,
