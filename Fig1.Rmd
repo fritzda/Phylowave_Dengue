@@ -55,6 +55,21 @@ loadfonts(device="all")
 source(file = '2_Functions/2_1_Index_computation_20240909.R')
 
 
+order_clades <- function(clades_char) {
+  # extract core pieces
+  sero   <- sub("^([0-9]+).*", "\\1", clades_char)                   # "2"
+  roman  <- sub("^[0-9]+([IVXLC]+).*", "\\1", clades_char)           # "II", "III", etc.
+  suffix <- grepl("r$", clades_char)                                 # TRUE if reference
+  
+  # convert Roman numeral to integer
+  roman_val <- as.integer(as.roman(roman))
+  
+  # produce ordering index
+  o <- order(roman_val, suffix)   # ( before 'r')
+  clades_char[o]
+}
+
+
 ```
 
 
@@ -147,6 +162,8 @@ old_tree_plot <- function(
     dengue = 1:4,
     min_year = NULL,
     max_year = 2015,
+    node_label = FALSE,
+    edge_color_overide = "grey", #or NULL to set to tip color
     output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
     filename = "Classical_Clades_plot_DENV_%d.svg",
     width = 8,
@@ -159,6 +176,14 @@ old_tree_plot <- function(
     root_height <- get(paste0('root_height_', d))
     clade_labels <- get(paste0('clade_labels_', d))
     colors_clade <- get(paste0('colors_clade_', d))
+    
+    if (is.null(edge_color_overide)) {
+      edge_color <- dataset_with_nodes$clade_color
+    } else {
+      edge_color <- edge_color_overide
+    }
+    
+    
     
     #need new dummy variable to not overight in the loop, is rounded lowest year if NULL and is user specified in else occasion
     min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
@@ -173,17 +198,65 @@ old_tree_plot <- function(
     
     ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
 
-    ## Tree plot
-    plot(tree, show.tip.label = FALSE, 
-         edge.color = 'grey', edge.width = 0.25,
-         x.lim = c(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5) - root_height
+    
+    Ntip  <- length(tree$tip.label)
+    Nnode <- tree$Nnode
+    
+    # build node-wise color vector aligned to ape numbering 1..Ntip+Nnode
+    # (handles any row order by matching on ID)
+    node_cols <- rep(NA_character_, Ntip + Nnode)
+    node_cols[ dataset_with_nodes$ID ] <- dataset_with_nodes$clade_color
+    
+    # edge colors = color of the CHILD node for each edge
+    edge_cols <- node_cols[ tree$edge[, 2] ]
+    
+    # if you want edges to match tip/node colors, use NULL override and feed edge_cols
+    edge_color <- if (is.null(edge_color_overide)) edge_cols else edge_color_overide
+    
+    
+    tip_rows   <- which(dataset_with_nodes$is.node == "no")
+    clade_vec  <- dataset_with_nodes$clade[tip_rows]
+    color_vec  <- dataset_with_nodes$clade_color[tip_rows]
+    valid      <- !is.na(clade_vec) & !is.na(color_vec)
+
+
+    # get unique clades in a stable, sorted order
+    clades_unique <- order_clades(unique(clade_vec[valid]))
+
+    # pick the first observed color for each clade
+    clade_colors <- vapply(
+      clades_unique,
+      function(cl) color_vec[ match(TRUE, clade_vec[valid] == cl) ],
+      character(1)
     )
-    tiplabels(pch = 16, col = dataset_with_nodes$clade_color, cex = 0.3
-              )
+    
+    
+    plot(tree, show.tip.label = FALSE,
+         edge.color = edge_color, edge.width = 0.25,
+         x.lim = c(floor(min_year_d/5)*5, ceiling(max_year/5)*5) - root_height)
+    
+    # tip symbols in tip order 1..Ntip
+    tiplabels(pch = 16, col = node_cols[1:Ntip], cex = 0.3)
+    
+    if (isTRUE(node_label)) {
+      int_cols <- node_cols[(Ntip+1):(Ntip+Nnode)]
+      int_cols[is.na(int_cols)] <- "black"
+      nodelabels(pch = 16, col = int_cols, cex = 0.3)
+    }
     axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
                  at_axis = ticks - root_height,
                  lab_axis = ticks, lwd = 0.5
                  )
+    
+    legend("left",
+           title = glue("DENV{d} NextStrain Clade"),
+       inset = 0.05,
+       legend = clades_unique,
+       fill   = clade_colors,
+       border = NA,
+       bty    = "n",
+       ncol   = 1,
+       cex    = 0.8)
     
     title(main = paste0(
       "DENV", d, "\n"
@@ -191,12 +264,12 @@ old_tree_plot <- function(
       # "Mutation Rate: ", mutation_rate_sci, "\n",
       # "Timescale: ", timescale, " years \n",
       # "Window: ", round(wind, 2), " years"
-    ), line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+    ), line = -2, adj = 0, cex.main = 0.8, col.main = "black")
      
+    
     
   }
 }
-
 
 
 
@@ -205,6 +278,8 @@ old_tree_plot(
     dengue = 1:4,
     min_year = NULL,  #set to the lowest year in the tree
     max_year = 2015,
+    node_label = FALSE,
+    edge_color_overide = "grey", #or "color" to set to tip color
     output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
     filename = "Classical_Clades_plot_alltime_DENV_%d.svg",
     width = 8,
@@ -217,8 +292,10 @@ old_tree_plot(
     dengue = 1:4,
     min_year = 1965,
     max_year = 2015,
+    node_label = TRUE,
+    edge_color_overide = NULL, #or "color" to set to tip color
     output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
-    filename = "Classical_Clades_plot_1965_DENV_%d.svg",
+    filename = "Classical_Clades_plot_1965_nodelabel_DENV_%d.svg",
     width = 8,
     height = 5
 )
