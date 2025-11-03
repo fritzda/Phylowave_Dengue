@@ -39,6 +39,7 @@ library(here)
 library(svglite)
 library(teal.modules.general)
 library(treedataverse)
+library(paletteer)
 
 # font_import()
 loadfonts(device="all") 
@@ -577,5 +578,50 @@ plot_trees_coloured_by_step(
   nrow = NULL,                      # rows per grid (if NULL, computed from k & ncol when paginate=FALSE)
   cell_w = 4, cell_h = 3       # inches per panel
 )
+```
+
+
+
+```{r plot hist of all samples}
+
+df_all <- rbind(dataset_with_nodes_1, 
+                dataset_with_nodes_2,
+                dataset_with_nodes_3,
+                dataset_with_nodes_4)
+
+df_all <- df_all %>% 
+  mutate(
+  serotype = as.factor(gsub("([0-9]+).*$", "\\1", clade))
+  ) %>% 
+  filter(is.node == "no") 
+
+
+hist(df_all$time, breaks = 20)
+
+
+nextstrain_color <- c("1" = "#57A1FF",
+                      "2" = "#87E0B2", 
+                      "3" = "#D6EE67", 
+                      "4" = "#FFCF4A" )
+
+ggplot(data = df_all, aes(x = time, fill = serotype)) + 
+  geom_histogram(colour = 'white', binwidth = 1.0) + scale_fill_manual(values = nextstrain_color) +
+   labs(x = "Collection Date", 
+        y = "Sequences",
+        title ="Sequences per Year per Serotype"
+   ) + labs(
+     fill = "Serotype"
+   ) + theme( 
+    legend.position = c(.95, .95),
+    legend.justification = c("right", "top"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6)
+   )
+
+
+ggsave(glue("3_Output_Figures/3_5_DENV/3_5_99_Supplement/Histogram_of_Samples.svg"))
+
+
+  
 ```
 
