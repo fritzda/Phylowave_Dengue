@@ -1,0 +1,1131 @@
+---
+title: "Presentation_Figures"
+author: "Douglas Fritz"
+date: "2025-11-04"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("ggtree")
+
+# install.packages("remotes")
+# remotes::install_github(repo = "stan-dev/cmdstanr")
+
+library(ape, quiet = T); library(phytools, quiet = T); library(stringr, quiet = T)
+library(MetBrewer, quiet = T); library(parallel, quiet = T); library(mgcv, quiet = T)
+library(cowplot, quiet = T); library(ggplot2, quiet = T); library(ggtree, quiet = T);
+library(cmdstanr, quiet = T); library(binom, quiet = T); library(plotly) ; library(DescTools); 
+library(readr, quiet = T); library(glue, quiet = T)
+library(grid)
+library(png)
+library(vDiveR)
+library(vcfR)
+library(reticulate)
+library(tidyverse)
+library(foreach)
+library(extrafont)
+library(dsmisc)
+library(phangorn)
+library(glue)
+library(readr)
+library(svglite)
+library(here)
+library(svglite)
+library(teal.modules.general)
+library(treedataverse)
+
+# font_import()
+loadfonts(device="all") 
+
+
+
+```
+
+
+
+
+
+
+```{r global functions}
+source(file = '2_Functions/2_1_Index_computation_20240909.R')
+
+
+order_clades <- function(clades_char) {
+  # extract core pieces
+  sero   <- sub("^([0-9]+).*", "\\1", clades_char)                   # "2"
+  roman  <- sub("^[0-9]+([IVXLC]+).*", "\\1", clades_char)           # "II", "III", etc.
+  suffix <- grepl("r$", clades_char)                                 # TRUE if reference
+  
+  # convert Roman numeral to integer
+  roman_val <- as.integer(as.roman(roman))
+  
+  # produce ordering index
+  o <- order(roman_val, suffix)   # ( before 'r')
+  clades_char[o]
+}
+
+
+```
+
+
+
+
+Here setup and load in data
+```{r here setup, echo = F, eval=T}
+
+## Not printed, set directory
+here::i_am("PhylowaveDengue.Rproj")
+st <- format(Sys.time(), "%Y-%m-%d_%H%M")
+
+data_dir <- "4_Output_Data"
+tree_st <- "2025-10-20_1143"
+dataset_with_nodes_st <- tree_st
+
+for (d in c(2,4)) {
+  
+  tree_file <- glue("{data_dir}/tree_DENV{d}_{tree_st}.rds")
+  tree <- read_rds(tree_file)
+  
+  dataset_with_nodes_file <- glue("{data_dir}/dataset_with_nodes_index_DENV{d}_{dataset_with_nodes_st}.rds")
+  dataset_with_nodes <- read_rds(dataset_with_nodes_file)
+  
+  gmat <- dist.nodes.with.names(tree)
+  
+  names_seqs <- tree$tip.label
+  n_seq <- length(names_seqs)
+  
+  # Parse YEAR 
+  times_seqs  <- suppressWarnings(as.numeric(stringr::word(names_seqs, 1, sep = stringr::fixed("_"))))
+  
+  # Root index: tips are 1..Ntip, so root is Ntip + 1 (ape convention)
+  nroot <- length(tree$tip.label) + 1
+  distance_to_root <- gmat[nroot, ]
+
+  # Use a reference tip that exists in the distance vector names (robust if first entry isn't a tip)
+  ref_tip <- intersect(names_seqs, names(distance_to_root))[1]
+
+  root_height <- times_seqs[which(names_seqs == ref_tip)] - distance_to_root[ref_tip]
+
+  # Internal nodes are indexed right after tips, sets height in time relative to tree root
+  nodes_height <- root_height + distance_to_root[n_seq + (1:(n_seq - 1))] 
+  
+  
+  colors_of_clades = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes$clade_inferred))),
+                            type="continuous")
+  
+  
+  # First, generate the color key, based on the Nextstrain clade of each sequence.
+  dataset_with_nodes$clade_color = as.factor(dataset_with_nodes$clade_inferred)
+  clade_labels = levels(dataset_with_nodes$clade_color)
+  levels(dataset_with_nodes$clade_color) = colors_of_clades
+  dataset_with_nodes$clade_color = as.character(dataset_with_nodes$clade_color)
+  dataset_with_nodes$clade_color[is.na(dataset_with_nodes$clade_color)] <- "grey"
+  
+  
+
+  
+  assign(glue("names_seqs_{d}"), names_seqs )
+  assign(glue("n_seq_{d}"), length(names_seqs ))
+  assign(glue("times_seqs_{d}"), times_seqs)
+  assign(glue("nroot_{d}"), nroot)
+  assign(glue("distance_to_root_{d}"), distance_to_root)
+  assign(glue("root_height_{d}"), root_height)
+  assign(glue("nodes_height_{d}"), nodes_height)
+  assign(glue("genetic_distance_mat_{d}"), gmat)
+  assign(glue("tree_DENV{d}"), tree)
+  assign(glue("dataset_with_nodes_{d}"), dataset_with_nodes)
+  assign(paste0("clade_labels_", d), clade_labels)
+  assign(paste0("colors_clade_", d), colors_of_clades)
+  assign(paste0("dataset_with_nodes_", d), dataset_with_nodes)
+  
+  
+}
+
+```
+
+#### Plot tree & index below, with colors from clades
+
+# Figure 1 Plot tree & index below, with colors from clades
+
+### TODO: Maxtime or set all to 1965?
+
+```{r clade and index plots old clades}
+
+
+# Plotting old tree and clades
+# old_tree_plot <- function(
+    d = 2
+    min_year = 1965
+    max_year = 2015
+    node_label = TRUE
+    edge_color_overide = NULL #or NULL to set to tip color
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_98_Presentation_Figures"
+    filename = "Classical_Clades_small_plot_DENV_%d.svg"
+    width = 3.5
+    height = 2
+
+
+  # Retrieve relevant variables
+    tree <- get(paste0('tree_DENV', d)) 
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    clade_labels <- get(paste0('clade_labels_', d))
+    colors_clade <- get(paste0('colors_clade_', d))
+    
+    if (is.null(edge_color_overide)) {
+      edge_color <- dataset_with_nodes$clade_color
+    } else {
+      edge_color <- edge_color_overide
+    }
+    
+    
+    
+    #need new dummy variable to not overight in the loop, is rounded lowest year if NULL and is user specified in else occasion
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+    
+  
+    
+     # 1 panel clades plot setup
+    file_path <- file.path(output_dir, sprintf(filename, d))
+    svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    
+    ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
+
+    
+    Ntip  <- length(tree$tip.label)
+    Nnode <- tree$Nnode
+    
+    # build node-wise color vector aligned to ape numbering 1..Ntip+Nnode
+    # (handles any row order by matching on ID)
+    node_cols <- rep(NA_character_, Ntip + Nnode)
+    node_cols[ dataset_with_nodes$ID ] <- dataset_with_nodes$clade_color
+    
+    # edge colors = color of the CHILD node for each edge
+    edge_cols <- node_cols[ tree$edge[, 2] ]
+    
+    # if you want edges to match tip/node colors, use NULL override and feed edge_cols
+    edge_color <- if (is.null(edge_color_overide)) edge_cols else edge_color_overide
+    
+    
+    tip_rows   <- which(dataset_with_nodes$is.node == "no")
+    clade_vec  <- dataset_with_nodes$clade[tip_rows]
+    color_vec  <- dataset_with_nodes$clade_color[tip_rows]
+    valid      <- !is.na(clade_vec) & !is.na(color_vec)
+
+
+    # get unique clades in a stable, sorted order
+    clades_unique <- order_clades(unique(clade_vec[valid]))
+
+    # pick the first observed color for each clade
+    clade_colors <- vapply(
+      clades_unique,
+      function(cl) color_vec[ match(TRUE, clade_vec[valid] == cl) ],
+      character(1)
+    )
+    
+    plot(tree, show.tip.label = FALSE,
+         edge.color = edge_color, edge.width = 0.25,
+         x.lim = c(floor(min_year_d/5)*5, ceiling(max_year/5)*5) - root_height)
+    # tip symbols in tip order 1..Ntip
+    tiplabels(pch = 16, col = node_cols[1:Ntip], cex = 0.5)
+    
+    if (isTRUE(node_label)) {
+      int_cols <- node_cols[(Ntip+1):(Ntip+Nnode)]
+      int_cols[is.na(int_cols)] <- "black"
+      nodelabels(pch = 16, col = int_cols, cex = 0.5)
+    }
+    axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+                 at_axis = ticks - root_height,
+                 lab_axis = ticks, lwd = 0.5
+                 )
+    
+    # legend("left",
+    #        title = glue("DENV{d} NextStrain Clade"),
+    #    inset = 0.05,
+    #    legend = clades_unique,
+    #    fill   = clade_colors,
+    #    border = NA,
+    #    bty    = "n",
+    #    ncol   = 1,
+    #    cex    = 0.8)
+    
+    title(main = paste0(
+      "DENV", d, "\n"
+      # ,"Genome Length: ", genome_length, " bp\n",
+      # "Mutation Rate: ", mutation_rate_sci, "\n",
+      # "Timescale: ", timescale, " years \n",
+      # "Window: ", round(wind, 2), " years"
+    ), line = -2, adj = 0, cex.main = 0.8, col.main = "black")
+     
+
+
+    
+    
+    
+    
+# Plotting old tree and clades
+# old_tree_plot <- function(
+    d = 4
+    min_year = 1965
+    max_year = 2015
+    node_label = FALSE
+    edge_color_overide = NULL #or NULL to set to tip color
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_98_Presentation_Figures"
+    filename = "Classical_Clades__plot_DENV_%d.svg"
+    width = 16
+    height = 8
+
+
+  # Retrieve relevant variables
+    tree <- get(paste0('tree_DENV', d)) 
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    clade_labels <- get(paste0('clade_labels_', d))
+    colors_clade <- get(paste0('colors_clade_', d))
+    
+    if (is.null(edge_color_overide)) {
+      edge_color <- dataset_with_nodes$clade_color
+    } else {
+      edge_color <- edge_color_overide
+    }
+    
+    
+    
+    #need new dummy variable to not overight in the loop, is rounded lowest year if NULL and is user specified in else occasion
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+    
+  
+    
+     # 1 panel clades plot setup
+    file_path <- file.path(output_dir, sprintf(filename, d))
+    svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    
+    ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
+
+    
+    Ntip  <- length(tree$tip.label)
+    Nnode <- tree$Nnode
+    
+    # build node-wise color vector aligned to ape numbering 1..Ntip+Nnode
+    # (handles any row order by matching on ID)
+    node_cols <- rep(NA_character_, Ntip + Nnode)
+    node_cols[ dataset_with_nodes$ID ] <- dataset_with_nodes$clade_color
+    
+    # edge colors = color of the CHILD node for each edge
+    edge_cols <- node_cols[ tree$edge[, 2] ]
+    
+    # if you want edges to match tip/node colors, use NULL override and feed edge_cols
+    edge_color <- if (is.null(edge_color_overide)) edge_cols else edge_color_overide
+    
+    
+    tip_rows   <- which(dataset_with_nodes$is.node == "no")
+    clade_vec  <- dataset_with_nodes$clade[tip_rows]
+    color_vec  <- dataset_with_nodes$clade_color[tip_rows]
+    valid      <- !is.na(clade_vec) & !is.na(color_vec)
+
+
+    # get unique clades in a stable, sorted order
+    clades_unique <- order_clades(unique(clade_vec[valid]))
+
+    # pick the first observed color for each clade
+    clade_colors <- vapply(
+      clades_unique,
+      function(cl) color_vec[ match(TRUE, clade_vec[valid] == cl) ],
+      character(1)
+    )
+    
+    plot(tree, show.tip.label = FALSE,
+         edge.color = edge_color, edge.width = 0.25,
+         x.lim = c(floor(min_year_d/5)*5, ceiling(max_year/5)*5) - root_height)
+    # tip symbols in tip order 1..Ntip
+    tiplabels(pch = 16, col = node_cols[1:Ntip], cex = 0.7)
+    
+    if (isTRUE(node_label)) {
+      int_cols <- node_cols[(Ntip+1):(Ntip+Nnode)]
+      int_cols[is.na(int_cols)] <- "black"
+      nodelabels(pch = 16, col = int_cols, cex = 0.7)
+    }
+    axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+                 at_axis = ticks - root_height,
+                 lab_axis = ticks, lwd = 0.5
+                 )
+    
+    # legend("left",
+    #        title = glue("DENV{d} NextStrain Clade"),
+    #    inset = 0.05,
+    #    legend = clades_unique,
+    #    fill   = clade_colors,
+    #    border = NA,
+    #    bty    = "n",
+    #    ncol   = 1,
+    #    cex    = 0.8)
+    
+    title(main = paste0(
+      "DENV", d, "\n"
+      # ,"Genome Length: ", genome_length, " bp\n",
+      # "Mutation Rate: ", mutation_rate_sci, "\n",
+      # "Timescale: ", timescale, " years \n",
+      # "Window: ", round(wind, 2), " years"
+    ), line = -2, adj = 0, cex.main = 0.8, col.main = "black")
+     
+
+
+
+
+```
+
+```{r old_index_plot}
+
+old_index_plot <- function(
+    dengue = 1:4,
+    min_year = NULL,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Index_plot_DENV_%d.svg",
+    width = 8,
+    height = 5){
+  
+  for (d in dengue) {
+    # Retrieve relevant variables
+    tree <- get(paste0('tree_DENV', d)) 
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    clade_labels <- get(paste0('clade_labels_', d))
+    colors_clade <- get(paste0('colors_clade_', d))
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year
+    
+    
+     # 1 panel index plot setup
+    file_path <- file.path(output_dir, sprintf(filename, d))
+    svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    ## Index plot
+    plot(dataset_with_nodes$time, 
+         dataset_with_nodes$index, 
+         col = adjustcolor(dataset_with_nodes$clade_color, alpha.f = 1),
+         bty = 'n', xlim = c(min_year_d, max_year), cex = 0.4,
+         pch = 16, ylim = c(0, 1), 
+         ylab = 'Index', xlab = 'Time (years)', xaxt = 'n', yaxt = 'n')
+    
+    title(main = paste0(
+      "DENV", d, " \n"
+    ), 
+    line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+    
+    axis(2, las = 2, lwd = 0.5)
+    axis(1, lwd = 0.5)
+    
+    # Color key
+    legend('topright', 
+           legend = clade_labels,
+           fill = colors_clade, border = colors_clade,
+           cex = 0.5, bty = 'n', ncol = 5)
+  
+    
+  }
+}
+
+
+
+
+old_index_plot(
+    dengue = 1:4,
+    min_year = NULL,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Index_plot_alltime_DENV_%d.svg",
+    width = 8,
+    height = 5)
+
+#plotting since 1965 
+old_index_plot(
+    dengue = 1:4,
+    min_year = 1965,
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "Classical_Index_plot_1965start_DENV_%d.svg",
+    width = 8,
+    height = 5)
+
+
+```
+
+```{r old_clade_and_index_panel_plot}
+    dengue = 2
+    min_year = 1965
+    max_year = 2015
+    node_label = TRUE
+    edge_color_overide = "grey"  #or NULL to set to tip color
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_98_Presentation_Figures"
+    filename = "Classical_Clades_and_Index_panel_plot_DENV_%d.svg"
+    width = 8.5
+    height = 5
+  
+    # Retrieve relevant variables
+    tree <- get(paste0('tree_DENV', d)) 
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    clade_labels <- get(paste0('clade_labels_', d))
+    colors_clade <- get(paste0('colors_clade_', d))
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year
+    
+    # 1 panel index plot setup
+    file_path <- file.path(output_dir, sprintf(filename, d))
+    svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    
+    
+    # Two-panel plot setup
+    par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    
+    if (is.null(edge_color_overide)) {
+      edge_color <- dataset_with_nodes$clade_color
+    } else {
+      edge_color <- edge_color_overide
+    }
+    
+    
+    
+    #need new dummy variable to not overight in the loop, is rounded lowest year if NULL and is user specified in else occasion
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+    
+    
+    
+    ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
+    
+    
+    Ntip  <- length(tree$tip.label)
+    Nnode <- tree$Nnode
+    
+    # build node-wise color vector aligned to ape numbering 1..Ntip+Nnode
+    # (handles any row order by matching on ID)
+    node_cols <- rep(NA_character_, Ntip + Nnode)
+    node_cols[ dataset_with_nodes$ID ] <- dataset_with_nodes$clade_color
+    
+    # edge colors = color of the CHILD node for each edge
+    edge_cols <- node_cols[ tree$edge[, 2] ]
+    
+    # if you want edges to match tip/node colors, use NULL override and feed edge_cols
+    edge_color <- if (is.null(edge_color_overide)) edge_cols else edge_color_overide
+    
+    
+    tip_rows   <- which(dataset_with_nodes$is.node == "no")
+    clade_vec  <- dataset_with_nodes$clade[tip_rows]
+    color_vec  <- dataset_with_nodes$clade_color[tip_rows]
+    valid      <- !is.na(clade_vec) & !is.na(color_vec)
+
+
+    # get unique clades in a stable, sorted order
+    clades_unique <- order_clades(unique(clade_vec[valid]))
+
+    # pick the first observed color for each clade
+    clade_colors <- vapply(
+      clades_unique,
+      function(cl) color_vec[ match(TRUE, clade_vec[valid] == cl) ],
+      character(1)
+    )
+    
+    plot(tree, show.tip.label = FALSE,
+         edge.color = edge_color, edge.width = 0.25,
+         x.lim = c(floor(min_year_d/5)*5, ceiling(max_year/5)*5) - root_height)
+    # tip symbols in tip order 1..Ntip
+    tiplabels(pch = 16, col = node_cols[1:Ntip], cex = 0.4)
+    
+    if (isTRUE(node_label)) {
+      int_cols <- node_cols[(Ntip+1):(Ntip+Nnode)]
+      int_cols[is.na(int_cols)] <- "black"
+      nodelabels(pch = 16, col = int_cols, cex = 0.4)
+    }
+    axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+                 at_axis = ticks - root_height,
+                 lab_axis = ticks, lwd = 0.5
+                 )
+    
+    # legend("left",
+    #        title = glue("DENV{d} NextStrain Clade"),
+    #    inset = 0.05,
+    #    legend = clades_unique,
+    #    fill   = clade_colors,
+    #    border = NA,
+    #    bty    = "n",
+    #    ncol   = 1,
+    #    cex    = 0.8)
+    
+    # title(main = paste0(
+    #   "DENV", d, "\n"
+    #   # ,"Genome Length: ", genome_length, " bp\n",
+    #   # "Mutation Rate: ", mutation_rate_sci, "\n",
+    #   # "Timescale: ", timescale, " years \n",
+    #   # "Window: ", round(wind, 2), " years"
+    # ), 
+    # line = -2, adj = 0, cex.main = 0.8, col.main = "black")
+     
+  
+  ## Index plot
+  plot(dataset_with_nodes$time, 
+       dataset_with_nodes$index, 
+       col = adjustcolor(dataset_with_nodes$clade_color, alpha.f = 1),
+       bty = 'n', xlim = c(min_year_d, max_year), cex = 0.4,
+       pch = 16, ylim = c(0, 1), 
+       ylab = 'Index', xlab = 'Time (years)', xaxt = 'n', yaxt = 'n')
+  
+  # title(main = paste0(
+  #   "DENV", d, " \n"
+  # ), line = -3.9, adj = 0, cex.main = 0.8, col.main = "black")
+  
+  axis(2, las = 2, lwd = 0.5)
+  axis(1, lwd = 0.5)
+  
+  # Color key
+  legend('topright', 
+         legend = clade_labels,
+         fill = colors_clade, border = colors_clade,
+         cex = 0.5, bty = 'n', ncol = 5)
+  
+  
+  # Save the plot
+  
+  # after dev.off() has run
+
+```
+
+
+# Loading the splits
+```{r load splits}
+
+data_dir <- "4_Output_Data"
+split_st <- "2025-10-30_1426"
+
+for (d in 1:4) {
+  
+  split_merged_file <- glue("{data_dir}/merged_splits_DENV{d}_{split_st}.rds")
+  split_unmerged_file <- glue("{data_dir}/unmerged_splits_DENV{d}_{split_st}.rds")
+
+  
+  split_merged <- read_rds(split_merged_file)
+  split_unmerged <- read_rds(split_unmerged_file)
+  
+  assign(glue("split_merged_{d}"), split_merged)
+  assign(glue("split_unmerged_{d}"), split_unmerged)
+  
+}
+
+
+# Check params stored with potential splits to check provenance 
+attr(split_merged_1, "params", exact = TRUE)
+attr(split_merged_2, "params", exact = TRUE)
+attr(split_merged_3, "params", exact = TRUE)
+attr(split_merged_4, "params", exact = TRUE)
+
+attr(split_unmerged_1, "params", exact = TRUE)
+attr(split_unmerged_2, "params", exact = TRUE)
+attr(split_unmerged_3, "params", exact = TRUE)
+attr(split_unmerged_4, "params", exact = TRUE)
+
+
+```
+
+
+
+# Plotting the new trees
+
+
+Label sequences with these new groups, and assign a color to each of
+them.
+
+
+#### Plot tree & index below, with colors from index-defined groups
+
+Plot the tree and index colored with the new groups:
+
+```{r new_tree_plot}
+new_tree_plot <- function(
+    dengue = 1:4, 
+    st = format(Sys.time(), tz = "UTC", "%Y-%m-%d_%H%M"),
+    split_name = "split_unmerged_%d",
+    min_year = NULL, 
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "DENV%d_New_Clades_MaxGroups_%s.svg", 
+    width = 8, 
+    height = 5,
+    palette_name = "Cross"){
+  
+
+  
+  
+  for (d in dengue) {
+    ## Dynamically retrieve the relevant variables
+    tree <- get(paste0('tree_DENV', d))
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    split <- get(sprintf(split_name, d))
+    
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+
+    ## Label sequences with new groups
+    dataset_with_nodes$groups <- as.factor(split$groups)
+    
+    ## Reorder labels by time of emergence
+    name_groups <- levels(dataset_with_nodes$groups)
+    time_groups_world <- NULL
+    for (j in 1:length(name_groups)) {
+      time_groups_world <- c(
+        time_groups_world, 
+        min(dataset_with_nodes$time[which(dataset_with_nodes$groups == name_groups[j] & 
+                                            dataset_with_nodes$is.node == 'no')])
+      )
+    }
+    
+    ## Update group levels
+    levels(dataset_with_nodes$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+    dataset_with_nodes$groups <- as.numeric(as.character(dataset_with_nodes$groups))
+    dataset_with_nodes$groups <- as.factor(dataset_with_nodes$groups)
+    
+    ## Update names in the split list
+    split$tip_and_nodes_groups <- match(split$tip_and_nodes_groups, order(time_groups_world, decreasing = TRUE))
+    names(split$tip_and_nodes_groups) <- 1:length(split$tip_and_nodes_groups)
+    split$groups <- as.factor(split$groups)
+    levels(split$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+    split$groups <- as.numeric(as.character(split$groups))
+    
+    ## Choose color palette
+    n_groups <- length(name_groups)
+    colors_groups <- met.brewer(name = palette_name, n = n_groups, type = "continuous")
+    
+    ## Color each group
+    dataset_with_nodes$group_color <- dataset_with_nodes$groups
+    levels(dataset_with_nodes$group_color) <- colors_groups
+    dataset_with_nodes$group_color <- as.character(dataset_with_nodes$group_color)
+    
+    ## Plotting
+    
+    file_path <- file.path(output_dir, sprintf(filename, d, st))
+    svglite::svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    
+    ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
+
+    ## Tree
+    tree_plot <- plot(tree, show.tip.label = FALSE, 
+                      edge.color = 'grey', edge.width = 0.25,
+                      x.lim = c(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5) - root_height
+                      )
+    tiplabels(pch = 16, col = dataset_with_nodes$group_color, cex = 0.3)
+    axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+                 at_axis = ticks - root_height,
+                 lab_axis = ticks, lwd = 0.5)
+    
+    
+    ## Save
+  }
+
+}
+
+
+
+
+
+```
+
+
+```{r new_index_plot}
+
+
+new_index_plot <- function(
+    dengue = 1:4, 
+    st = format(Sys.time(), tz = "UTC", "%Y-%m-%d_%H%M"),
+    split_name = "split_unmerged_%d",
+    min_year = NULL, 
+    max_year = 2015,
+    output_dir = "3_Output_Figures/3_5_DENV/3_5_1_Figure 1",
+    filename = "DENV%d_New_Clades_MaxGroups_Index_%s.svg", 
+    width = 8, 
+    height = 5,
+    palette_name = "Cross"){
+  
+  
+  
+  
+  for (d in dengue) {
+    ## Dynamically retrieve the relevant variables
+    tree <- get(paste0('tree_DENV', d))
+    dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+    root_height <- get(paste0('root_height_', d))
+    split <- get(sprintf(split_name, d))
+    
+    min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+    
+    
+    ## Label sequences with new groups
+    dataset_with_nodes$groups <- as.factor(split$groups)
+    
+    ## Reorder labels by time of emergence
+    name_groups <- levels(dataset_with_nodes$groups)
+    time_groups_world <- NULL
+    for (j in 1:length(name_groups)) {
+      time_groups_world <- c(
+        time_groups_world, 
+        min(dataset_with_nodes$time[which(dataset_with_nodes$groups == name_groups[j] & 
+                                            dataset_with_nodes$is.node == 'no')])
+      )
+    }
+    
+    ## Update group levels
+    levels(dataset_with_nodes$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+    dataset_with_nodes$groups <- as.numeric(as.character(dataset_with_nodes$groups))
+    dataset_with_nodes$groups <- as.factor(dataset_with_nodes$groups)
+    
+    ## Update names in the split list
+    split$tip_and_nodes_groups <- match(split$tip_and_nodes_groups, order(time_groups_world, decreasing = TRUE))
+    names(split$tip_and_nodes_groups) <- 1:length(split$tip_and_nodes_groups)
+    split$groups <- as.factor(split$groups)
+    levels(split$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+    split$groups <- as.numeric(as.character(split$groups))
+    
+    ## Choose color palette
+    n_groups <- length(name_groups)
+    colors_groups <- met.brewer(name = palette_name, n = n_groups, type = "continuous")
+    
+    ## Color each group
+    dataset_with_nodes$group_color <- dataset_with_nodes$groups
+    levels(dataset_with_nodes$group_color) <- colors_groups
+    dataset_with_nodes$group_color <- as.character(dataset_with_nodes$group_color)
+    
+    ## Plotting
+    
+    file_path <- file.path(output_dir, sprintf(filename, d, st))
+    svglite::svglite(filename = file_path, width = width, height = height)
+    on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+    par(mfrow = c(1, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+    
+    ## Index colored by group
+    index_plot <- plot(dataset_with_nodes$time, 
+                       dataset_with_nodes$index, 
+                       col = adjustcolor(dataset_with_nodes$group_color, alpha.f = 1),
+                       bty = 'n', xlim = c(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5), cex = 0.5,
+                       pch = 16, ylab = 'Index', xlab = 'Time (years)', yaxt = 'n', xaxt = "n")
+    title(main = paste0(
+      "DENV_", d, "\n"), 
+      line = -3.9, adj = 0, cex.main = 0.8, col.main = "grey")
+    
+    axis(2, las = 2, lwd = 0.5)
+    ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
+    axis(1, at = ticks, labels = ticks, lwd = 0.5)
+    
+    
+    ## Color key
+    legend('topright', 
+           legend = name_groups,
+           fill = colors_groups, border = colors_groups,
+           cex = 0.5, bty = 'n', ncol = 5)
+    
+    ## Save
+  }
+  
+}
+
+
+    
+```
+
+
+```{r new index and tree plot}
+
+d = 2
+st = format(Sys.time(), tz = "UTC", "%Y-%m-%d_%H%M")
+split_name   = "split_unmerged_%d"
+min_year     = 1965
+max_year     = 2015
+node_label   = TRUE
+output_dir   = "3_Output_Figures/3_5_DENV/3_5_98_Presentation_Figures"
+filename     = "DENV{d}_AllGroups_{st}.svg"  
+width        = 8.5
+height       = 5
+palette_name = "Cross"
+
+## data
+tree               <- get(paste0('tree_DENV', d))
+dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+root_height        <- get(paste0('root_height_', d))
+split              <- get(sprintf(split_name, d))
+
+min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+
+## groups + palette mapping
+dataset_with_nodes$groups <- as.factor(split$groups)
+
+name_groups <- levels(dataset_with_nodes$groups)
+time_groups_world <- vapply(
+  name_groups,
+  function(g) min(dataset_with_nodes$time[dataset_with_nodes$groups == g &
+                                          dataset_with_nodes$is.node == 'no'], na.rm = TRUE),
+  numeric(1)
+)
+
+## reorder groups by emergence (desc), keep factor mapping consistent
+levels(dataset_with_nodes$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+dataset_with_nodes$groups <- as.numeric(as.character(dataset_with_nodes$groups))
+dataset_with_nodes$groups <- as.factor(dataset_with_nodes$groups)
+
+split$tip_and_nodes_groups <- match(split$tip_and_nodes_groups, order(time_groups_world, decreasing = TRUE))
+names(split$tip_and_nodes_groups) <- 1:length(split$tip_and_nodes_groups)
+split$groups <- as.factor(split$groups)
+levels(split$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+split$groups <- as.numeric(as.character(split$groups))
+
+## palette for all groups
+n_groups     <- length(levels(dataset_with_nodes$groups))
+colors_groups <- met.brewer(name = palette_name, n = n_groups, type = "continuous")
+
+## attach colors to each row (tips + nodes)
+dataset_with_nodes$group_color <- dataset_with_nodes$groups
+levels(dataset_with_nodes$group_color) <- colors_groups
+dataset_with_nodes$group_color <- as.character(dataset_with_nodes$group_color)
+dataset_with_nodes$group_color[is.na(dataset_with_nodes$group_color)] <- "grey70"
+
+## plotting
+file_path <- file.path(output_dir, glue::glue(filename))
+svglite::svglite(filename = file_path, width = width, height = height)
+on.exit(grDevices::dev.off(), add = TRUE)
+
+par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+
+ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
+
+## --- TREE: edges grey; tips + nodes in group colors ---
+plot(tree, show.tip.label = FALSE,
+     edge.color = "grey70", edge.width = 0.25,
+     x.lim = c(floor(min_year_d/5)*5, ceiling(max_year/5)*5) - root_height)
+
+tip_idx_all  <- which(dataset_with_nodes$is.node == "no")
+node_idx_all <- which(dataset_with_nodes$is.node == "yes")
+
+if (length(tip_idx_all)) {
+  ape::tiplabels(pch = 16,
+                 col = dataset_with_nodes$group_color[tip_idx_all],
+                 cex = 0.4,
+                 tip = dataset_with_nodes$ID[tip_idx_all])
+}
+if (isTRUE(node_label) && length(node_idx_all)) {
+  ape::nodelabels(pch = 16,
+                  col = dataset_with_nodes$group_color[node_idx_all],
+                  cex = 0.35,
+                  node = dataset_with_nodes$ID[node_idx_all])
+}
+
+axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+             at_axis = ticks - root_height,
+             lab_axis = ticks, lwd = 0.5)
+
+## --- INDEX: all points in group colors ---
+x <- dataset_with_nodes$time
+y <- dataset_with_nodes$index
+
+plot(x, y, type = "n",
+     bty = "n",
+     xlim = c(floor(min_year_d/5)*5, ceiling(max_year/5)*5),
+     ylim = c(0, 1),
+     ylab = "Index", xlab = "Time (years)",
+     yaxt = "n", xaxt = "n")
+
+axis(2, las = 2, lwd = 0.5)
+axis(1, at = ticks, labels = ticks, lwd = 0.5)
+
+points(x, y, pch = 16, cex = 0.4, col = dataset_with_nodes$group_color)
+
+## legend (groups -> colors)
+legend('topright',
+       legend = levels(dataset_with_nodes$groups),
+       fill   = colors_groups,
+       border = colors_groups,
+       cex = 0.6, bty = 'n', ncol = 5)
+```
+
+
+
+
+```{r old to new index and tree panel plot with hl}
+d = 2
+st = format(Sys.time(), tz = "UTC", "%Y-%m-%d_%H%M")
+split_name = "split_unmerged_%d"
+min_year = 1965
+max_year = 2015
+node_label = TRUE
+output_dir = "3_Output_Figures/3_5_DENV/3_5_98_Presentation_Figures"
+filename = "DENV{d}_New_Clades_MaxGroups_{h}_{st}.svg"
+filename_png = "DENV{d}_New_Clades_MaxGroups_{h}_{st}.png"
+width = 8.5
+height = 5
+## choose which group to highlight
+highlight_group = 1:30
+palette_name = "Cross"
+
+
+
+
+## Dynamically retrieve the relevant variables
+tree <- get(paste0('tree_DENV', d))
+dataset_with_nodes <- get(paste0('dataset_with_nodes_', d))
+root_height <- get(paste0('root_height_', d))
+split <- get(sprintf(split_name, d))
+
+min_year_d <- if (is.null(min_year)) floor(min(dataset_with_nodes$time, na.rm = TRUE)) - 1 else min_year 
+
+## Label sequences with new groups
+dataset_with_nodes$groups <- as.factor(split$groups)
+
+## Reorder labels by time of emergence
+name_groups <- levels(dataset_with_nodes$groups)
+time_groups_world <- NULL
+for (j in 1:length(name_groups)) {
+  time_groups_world <- c(
+    time_groups_world, 
+    min(dataset_with_nodes$time[which(dataset_with_nodes$groups == name_groups[j] & 
+                                        dataset_with_nodes$is.node == 'no')])
+  )
+}
+
+## Update group levels
+levels(dataset_with_nodes$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+dataset_with_nodes$groups <- as.numeric(as.character(dataset_with_nodes$groups))
+dataset_with_nodes$groups <- as.factor(dataset_with_nodes$groups)
+
+## Update names in the split list
+split$tip_and_nodes_groups <- match(split$tip_and_nodes_groups, order(time_groups_world, decreasing = TRUE))
+names(split$tip_and_nodes_groups) <- 1:length(split$tip_and_nodes_groups)
+split$groups <- as.factor(split$groups)
+levels(split$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+split$groups <- as.numeric(as.character(split$groups))
+
+## Choose color palette
+n_groups <- length(name_groups)
+colors_groups <- met.brewer(name = palette_name, n = n_groups, type = "continuous")
+
+## Color each group
+dataset_with_nodes$group_color <- dataset_with_nodes$groups
+levels(dataset_with_nodes$group_color) <- colors_groups
+dataset_with_nodes$group_color <- as.character(dataset_with_nodes$group_color)
+
+## Plotting
+for (h in highlight_group){
+
+file_path <- file.path(output_dir, glue(filename))
+file_path_png <- file.path(output_dir, glue(filename_png))
+# svglite::svglite(filename = file_path, width = width, height = height)
+png(filename = file_path_png, width = width, height = height, units = "in", res = 300)
+on.exit(grDevices::dev.off(), add = TRUE)  # ensure device closes even if error
+par(mfrow = c(2, 1), oma = c(0, 0, 0, 0), mar = c(4, 4, 0, 0))
+
+ticks <- seq(floor(min_year_d / 5) * 5, ceiling(max_year / 5) * 5, by = 5)
+
+## --- prep ---
+gnum <- suppressWarnings(as.integer(as.character(dataset_with_nodes$groups)))
+is_highlight <- !is.na(gnum) & (gnum == h)
+
+tip_idx_all  <- which(dataset_with_nodes$is.node == "no")
+node_idx_all <- which(dataset_with_nodes$is.node == "yes")
+
+bg_tip_idx   <- tip_idx_all[ !is_highlight[tip_idx_all] ]
+bg_node_idx  <- node_idx_all[ !is_highlight[node_idx_all] ]
+fg_tip_idx   <- tip_idx_all[  is_highlight[tip_idx_all] ]
+fg_node_idx  <- node_idx_all[  is_highlight[node_idx_all] ]
+
+## --- plot tree: all edges grey ---
+plot(tree, show.tip.label = FALSE,
+     edge.color = "grey", edge.width = 0.25,
+     x.lim = c(floor(min_year_d/5)*5, ceiling(max_year/5)*5) - root_height)
+
+## --- BACKGROUND: tips + nodes in clade colors (slightly transparent) ---
+if (length(bg_tip_idx)) {
+  tiplabels(pch = 16,
+            col = adjustcolor(dataset_with_nodes$clade_color[bg_tip_idx], alpha.f = 0.25),
+            cex = 0.4,
+            tip = dataset_with_nodes$ID[bg_tip_idx])
+}
+if (length(bg_node_idx)) {
+  nodelabels(pch = 16,
+             col = adjustcolor(dataset_with_nodes$clade_color[bg_node_idx], alpha.f = 0.25),
+             cex = 0.35,
+             node = dataset_with_nodes$ID[bg_node_idx])
+}
+
+## --- HIGHLIGHT: tips + nodes in group color, drawn on top ---
+if (length(fg_tip_idx)) {
+  # outline + fill to make them pop
+  tiplabels(pch = 16, col = "black", cex = 0.55,
+            tip = dataset_with_nodes$ID[fg_tip_idx])
+  tiplabels(pch = 16,
+            col = dataset_with_nodes$group_color[fg_tip_idx], cex = 0.35,
+            tip = dataset_with_nodes$ID[fg_tip_idx])
+}
+if (length(fg_node_idx)) {
+  nodelabels(pch = 16, col = "black", cex = 0.55,
+             node = dataset_with_nodes$ID[fg_node_idx])
+  nodelabels(pch = 16,
+             col = dataset_with_nodes$group_color[fg_node_idx], cex = 0.35,
+             node = dataset_with_nodes$ID[fg_node_idx])
+}
+
+## --- axis ---
+axisPhylo_NL(side = 1, root.time = root_height, backward = FALSE,
+             at_axis = seq(floor(min_year_d/5)*5, ceiling(max_year/5)*5, by = 5) - root_height,
+             lab_axis = seq(floor(min_year_d/5)*5, ceiling(max_year/5)*5, by = 5),
+             lwd = 0.5)
+
+## set x/y once
+x <- dataset_with_nodes$time
+y <- dataset_with_nodes$index
+
+## set plot limits and ticks
+xlim <- c(floor(min_year_d/5)*5, ceiling(max_year/5)*5)
+ticks <- seq(xlim[1], xlim[2], by = 5)
+
+## start with an empty canvas so we control draw order
+plot(x, y, type = "n",
+     bty = "n", xlim = xlim,
+     ylab = "Index", xlab = "Time (years)",
+     yaxt = "n", xaxt = "n")
+
+axis(2, las = 2, lwd = 0.5)
+axis(1, at = ticks, labels = ticks, lwd = 0.5)
+
+## 1) background points: all NON-highlight, in clade colors
+bg_idx <- !is_highlight
+bg_cols <- dataset_with_nodes$clade_color[bg_idx]
+bg_cols <- adjustcolor(bg_cols, alpha.f = 0.2)  
+points(x[bg_idx], y[bg_idx],
+       pch = 16, cex = 0.4, col = bg_cols)
+
+## 2) foreground points: HIGHLIGHT group, in its group color, drawn on top
+fg_cols <- dataset_with_nodes$group_color[is_highlight]
+# pch=21 with border makes them “pop” on top; tweak cex/pch as you like
+points(x[is_highlight], y[is_highlight],
+       pch = 21, cex = 0.55,
+       bg = fg_cols, col = "black")  # black outline helps visibility
+
+## Color key
+legend('topright', 
+       legend = name_groups,
+       fill = colors_groups, border = colors_groups,
+       cex = 0.5, bty = 'n', ncol = 5)
+
+dev.off()
+
+}
+ 
+
+```
+
