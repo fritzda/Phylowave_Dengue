@@ -187,7 +187,13 @@ plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
   }
 }
 
-plot_fit_data_per_group = function(data, Chains, colour_lineage){
+#' Functions to plot fits of each lineage separately
+#' @param data fit data list from fitness model
+#' @param Chains = chain data from fitness model
+#' @param colour_lineage = colors for each group
+#' @param points_only = When TRUE will plot only the points and error bars without the model lines. Defaults to FALSE
+#' @returns A set of plots each with a modeled lineage frequency trajectory over time with 95% credible ribbons, overlaid with observed multinomial proportions and CIs.
+plot_fit_data_per_group = function(data, Chains, colour_lineage, points_only = FALSE){
   pred_freq_chains = array(NA, dim = c(length(Chains$lp__), data$K, data$N))
   for(i in 1:data$N){
     pred_freq_chains[,,i] = t(apply(Chains$theta[,,i], MAR = 1, softmax))
@@ -208,7 +214,23 @@ plot_fit_data_per_group = function(data, Chains, colour_lineage){
     data_cimax[i,] = tmp[[i]][,3]
   }
   for(i in 1:data$K){
+    
+    if (isTRUE(points_only)) {
     plot(NULL, bty = "n", ylim = c(0,1), xlim = c(min(data$t), max(data$t)), xlab = "Time (years)", ylab = "Proportion",
+         main = i)
+    pred_freq = apply(pred_freq_chains[,i,], MARGIN = 2, function(x)mean.and.ci(x))
+    ## data, Multinomial CI
+    d_m = data_m[,i]
+    d_cimin = data_cimin[,i]
+    d_cimax = data_cimax[,i]
+    ## Plot
+    points(data$t, d_m, col = colour_lineage[i], pch = 16)
+    arrows(data$t, d_cimin, data$t, d_cimax, length=0, angle=0, code=3, lwd = 0.8,
+           col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
+    
+    }else{
+      
+      plot(NULL, bty = "n", ylim = c(0,1), xlim = c(min(data$t), max(data$t)), xlab = "Time (years)", ylab = "Proportion",
          main = i)
     pred_freq = apply(pred_freq_chains[,i,], MARGIN = 2, function(x)mean.and.ci(x))
     ## fit
@@ -224,9 +246,19 @@ plot_fit_data_per_group = function(data, Chains, colour_lineage){
     points(data$t, d_m, col = colour_lineage[i], pch = 16)
     arrows(data$t, d_cimin, data$t, d_cimax, length=0, angle=0, code=3, lwd = 0.8,
            col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
-  }
+    }
+  } 
 }
-plot_fit_data_selected = function(data, Chains, colour_lineage, selected){
+
+
+#' Functions to plot fits of a specific lineage separately
+#' @param data fit data list from fitness model
+#' @param Chains = chain data from fitness model
+#' @param colour_lineage = colors for each group
+#' @param selected = Number ID of the group to plot
+#' @param points_only = When TRUE will plot only the points and error bars without the model lines. Defaults to FALSE
+#' @returns A plots each with a selected modeled lineage frequency trajectory over time with 95% credible ribbons, overlaid with observed multinomial proportions and CIs.
+plot_fit_data_selected = function(data, Chains, colour_lineage, selected, points_only = FALSE){
   plot(NULL, bty = "n", ylim = c(0,1), xlim = c(min(data$t), max(data$t)), xlab = "Time (years)", ylab = "Proportion", yaxt = 'n', xaxt = 'n')
   axis(2, las = 2, lwd = 0.5, lwd.ticks = 0.5, tck=-0.01, mgp = c(0.8, 0.2, 0), at = seq(0,1,0.5), labels = seq(0,1,0.5))
   axis(1, lwd = 0.5, lwd.ticks = 0.5, tck=-0.01, mgp = c(0.8, -0.2, 0))
@@ -255,21 +287,33 @@ plot_fit_data_selected = function(data, Chains, colour_lineage, selected){
     ## Plot only after lineage birth
     t_birth = data$t_start[i]
     
-    ## fit
-    lines(data$t_new[which(data$t_new >= t_birth)], pred_freq[1,which(data$t_new >= t_birth)], lwd = 2, col = colour_lineage[i])
-    polygon(x = c(data$t_new[which(data$t_new >= t_birth)], rev(data$t_new[which(data$t_new >= t_birth)])),
-            y = c(pred_freq[2,which(data$t_new >= t_birth)], rev(pred_freq[3,which(data$t_new >= t_birth)])), border = F,
-            col = adjustcolor(colour_lineage[i], alpha.f = 0.5))
-    ## data, Multinomial CI
-    d_m = data_m[which(data$t >= t_birth),i]
-    d_cimin = data_cimin[which(data$t >= t_birth),i]
-    d_cimax = data_cimax[which(data$t >= t_birth),i]
-    ## Plot
-    points(data$t[which(data$t >= t_birth)], d_m, col = colour_lineage[i], pch = 16, cex = 0.5)
-    arrows(data$t[which(data$t >= t_birth)], d_cimin, data$t[which(data$t >= t_birth)], d_cimax, length=0, angle=0, code=3, lwd = 0.8,
-           col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
+    if (isTRUE(points_only)) {
+      ## data, Multinomial CI
+      d_m = data_m[which(data$t >= t_birth),i]
+      d_cimin = data_cimin[which(data$t >= t_birth),i]
+      d_cimax = data_cimax[which(data$t >= t_birth),i]
+      ## Plot
+      points(data$t[which(data$t >= t_birth)], d_m, col = colour_lineage[i], pch = 16, cex = 0.5)
+      arrows(data$t[which(data$t >= t_birth)], d_cimin, data$t[which(data$t >= t_birth)], d_cimax, length=0, angle=0, code=3, lwd = 0.8,
+             col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
+    } else {
+      ## fit
+      lines(data$t_new[which(data$t_new >= t_birth)], pred_freq[1,which(data$t_new >= t_birth)], lwd = 2, col = colour_lineage[i])
+      polygon(x = c(data$t_new[which(data$t_new >= t_birth)], rev(data$t_new[which(data$t_new >= t_birth)])),
+              y = c(pred_freq[2,which(data$t_new >= t_birth)], rev(pred_freq[3,which(data$t_new >= t_birth)])), border = F,
+              col = adjustcolor(colour_lineage[i], alpha.f = 0.5))
+      ## data, Multinomial CI
+      d_m = data_m[which(data$t >= t_birth),i]
+      d_cimin = data_cimin[which(data$t >= t_birth),i]
+      d_cimax = data_cimax[which(data$t >= t_birth),i]
+      ## Plot
+      points(data$t[which(data$t >= t_birth)], d_m, col = colour_lineage[i], pch = 16, cex = 0.5)
+      arrows(data$t[which(data$t >= t_birth)], d_cimin, data$t[which(data$t >= t_birth)], d_cimax, length=0, angle=0, code=3, lwd = 0.8,
+             col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
+    }
   }
 }
+
 plot_fitness_values = function(data, Chains, colour_lineage, gentime){
   betas = apply(exp(Chains$beta*gentime), MARGIN = 2, function(x)mean.and.ci(x))
   plot(1:(length(betas[1,])+1), c(betas[1,], 1), log = 'y', 
