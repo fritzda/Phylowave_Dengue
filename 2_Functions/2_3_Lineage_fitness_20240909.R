@@ -143,10 +143,11 @@ plot_fit_data = function(data, Chains, colour_lineage){
 #' @param data fit data list from fitness model
 #' @param Chains = chain data from fitness model
 #' @param colour_lineage = colors for each group
+#' @param points_only = When TRUE will plot only the points and error bars without the model lines. Defaults to FALSE
 #' @param xmin = A time value for the x axis minimum 
 #' @param xmax = A time value for the x axis maximum
 #' @returns A Plot of modeled lineage frequency trajectories over time with 95% credible ribbons, overlaid with observed multinomial proportions and CIs.
-plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
+plot_fit_data_new = function(data, Chains, colour_lineage, points_only, xmin, xmax){
   plot(NULL, bty = 'n', ylim = c(0,1), xlim = c(xmin, xmax), yaxt = 'n',
        col = colour_lineage[1], xlab = 'Time (years)', ylab = 'Proportion')
   axis(2, las = 2)
@@ -169,13 +170,10 @@ plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
     data_cimin[i,] = tmp[[i]][,2]
     data_cimax[i,] = tmp[[i]][,3]
   }
+  
+  if (isTRUE(points_only)) {
   for(i in 1:data$K){
     pred_freq = apply(pred_freq_chains[,i,], MARGIN = 2, function(x)mean.and.ci(x))
-    ## fit
-    lines(data$t_new, pred_freq[1,], lwd = 2, col = colour_lineage[i])
-    polygon(x = c(data$t_new, rev(data$t_new)),
-            y = c(pred_freq[2,], rev(pred_freq[3,])), border = F,
-            col = adjustcolor(colour_lineage[i], alpha.f = 0.5))
     ## data, Multinomial CI
     d_m = data_m[,i]
     d_cimin = data_cimin[,i]
@@ -185,6 +183,25 @@ plot_fit_data_new = function(data, Chains, colour_lineage, xmin, xmax){
     arrows(data$t, d_cimin, data$t, d_cimax, length=0, angle=0, code=3, lwd = 0.8,
            col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
   }
+  }else{
+    for(i in 1:data$K){
+      pred_freq = apply(pred_freq_chains[,i,], MARGIN = 2, function(x)mean.and.ci(x))
+      ## fit
+      lines(data$t_new, pred_freq[1,], lwd = 2, col = colour_lineage[i])
+      polygon(x = c(data$t_new, rev(data$t_new)),
+              y = c(pred_freq[2,], rev(pred_freq[3,])), border = F,
+              col = adjustcolor(colour_lineage[i], alpha.f = 0.5))
+      ## data, Multinomial CI
+      d_m = data_m[,i]
+      d_cimin = data_cimin[,i]
+      d_cimax = data_cimax[,i]
+      ## Plot
+      points(data$t, d_m, col = colour_lineage[i], pch = 16)
+      arrows(data$t, d_cimin, data$t, d_cimax, length=0, angle=0, code=3, lwd = 0.8,
+             col = adjustcolor(colour_lineage[i], alpha.f = 0.8))
+    }
+  }
+    
 }
 
 #' Functions to plot fits of each lineage separately
