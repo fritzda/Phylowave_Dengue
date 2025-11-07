@@ -7,8 +7,499 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("ggtree")
+
+# install.packages("remotes")
+# remotes::install_github(repo = "stan-dev/cmdstanr")
+
+library(ape, quiet = T); library(phytools, quiet = T); library(stringr, quiet = T)
+library(MetBrewer, quiet = T); library(parallel, quiet = T); library(mgcv, quiet = T)
+library(cowplot, quiet = T); library(ggplot2, quiet = T); library(ggtree, quiet = T);
+library(cmdstanr, quiet = T); library(binom, quiet = T); library(plotly) ; library(DescTools); 
+library(readr, quiet = T); library(glue, quiet = T)
+library(grid)
+library(png)
+library(vDiveR)
+library(vcfR)
+library(reticulate)
+library(tidyverse)
+library(foreach)
+library(extrafont)
+library(dsmisc)
+library(phangorn)
+library(glue)
+library(readr)
+library(svglite)
+library(here)
+library(svglite)
+library(teal.modules.general)
+library(treedataverse)
+
+# font_import()
+loadfonts(device="all") 
+
+
+
 ```
 
+
+
+```{r global functions}
+source(file = '2_Functions/2_1_Index_computation_20240909.R')
+source(file = "2_Functions/2_3_Lineage_fitness_20240909.R")
+
+
+```
+
+
+
+Here setup and load in data
+```{r here setup, echo = F, eval=T}
+
+## Not printed, set directory
+here::i_am("PhylowaveDengue.Rproj")
+st <- format(Sys.time(), "%Y-%m-%d_%H%M")
+
+data_dir <- "4_Output_Data"
+tree_st <- "2025-10-20_1143"
+dataset_with_nodes_st <- tree_st
+
+
+
+for (d in 1:4) {
+  
+  tree_file <- glue("{data_dir}/tree_DENV{d}_{tree_st}.rds")
+  tree <- read_rds(tree_file)
+  
+  dataset_with_nodes_file <- glue("{data_dir}/dataset_with_nodes_index_DENV{d}_{dataset_with_nodes_st}.rds")
+  dataset_with_nodes <- read_rds(dataset_with_nodes_file)
+  
+  gmat <- dist.nodes.with.names(tree)
+  
+  names_seqs <- tree$tip.label
+  n_seq <- length(names_seqs)
+  
+  # Parse YEAR 
+  times_seqs  <- suppressWarnings(as.numeric(stringr::word(names_seqs, 1, sep = stringr::fixed("_"))))
+  
+  # Root index: tips are 1..Ntip, so root is Ntip + 1 (ape convention)
+  nroot <- length(tree$tip.label) + 1
+  distance_to_root <- gmat[nroot, ]
+
+  # Use a reference tip that exists in the distance vector names (robust if first entry isn't a tip)
+  ref_tip <- intersect(names_seqs, names(distance_to_root))[1]
+
+  root_height <- times_seqs[which(names_seqs == ref_tip)] - distance_to_root[ref_tip]
+
+  # Internal nodes are indexed right after tips, sets height in time relative to tree root
+  nodes_height <- root_height + distance_to_root[n_seq + (1:(n_seq - 1))] 
+  
+  
+  colors_of_clades = met.brewer(name="Cross", n=length(levels(as.factor(dataset_with_nodes$clade_inferred))),
+                            type="continuous")
+  
+  
+  # First, generate the color key, based on the Nextstrain clade of each sequence.
+  dataset_with_nodes$clade_color = as.factor(dataset_with_nodes$clade_inferred)
+  clade_labels = levels(dataset_with_nodes$clade_color)
+  levels(dataset_with_nodes$clade_color) = colors_of_clades
+  dataset_with_nodes$clade_color = as.character(dataset_with_nodes$clade_color)
+  dataset_with_nodes$clade_color[is.na(dataset_with_nodes$clade_color)] <- "grey"
+  
+  
+
+  
+  assign(glue("names_seqs_{d}"), names_seqs )
+  assign(glue("n_seq_{d}"), length(names_seqs ))
+  assign(glue("times_seqs_{d}"), times_seqs)
+  assign(glue("nroot_{d}"), nroot)
+  assign(glue("distance_to_root_{d}"), distance_to_root)
+  assign(glue("root_height_{d}"), root_height)
+  assign(glue("nodes_height_{d}"), nodes_height)
+  assign(glue("genetic_distance_mat_{d}"), gmat)
+  assign(glue("tree_DENV{d}"), tree)
+  assign(glue("dataset_with_nodes_{d}"), dataset_with_nodes)
+  assign(paste0("clade_labels_", d), clade_labels)
+  assign(paste0("colors_clade_", d), colors_of_clades)
+  assign(paste0("dataset_with_nodes_", d), dataset_with_nodes)
+  
+  
+}
+
+```
+
+
+
+# Loading the splits
+```{r load splits}
+
+data_dir <- "4_Output_Data"
+split_st <- "2025-10-30_1426"
+
+for (d in 1:4) {
+  
+  split_merged_file <- glue("{data_dir}/merged_splits_DENV{d}_{split_st}.rds")
+  split_unmerged_file <- glue("{data_dir}/unmerged_splits_DENV{d}_{split_st}.rds")
+
+  
+  split_merged <- read_rds(split_merged_file)
+  split_unmerged <- read_rds(split_unmerged_file)
+  
+  assign(glue("split_merged_{d}"), split_merged)
+  assign(glue("split_unmerged_{d}"), split_unmerged)
+  
+}
+
+
+# Check params stored with potential splits to check provenance 
+attr(split_merged_1, "params", exact = TRUE)
+attr(split_merged_2, "params", exact = TRUE)
+attr(split_merged_3, "params", exact = TRUE)
+attr(split_merged_4, "params", exact = TRUE)
+
+attr(split_unmerged_1, "params", exact = TRUE)
+attr(split_unmerged_2, "params", exact = TRUE)
+attr(split_unmerged_3, "params", exact = TRUE)
+attr(split_unmerged_4, "params", exact = TRUE)
+
+
+```
+
+
+```{r}
+for (i in 1:4) {
+  ## Dynamically retrieve the dataset and split for the current iteration
+  dataset_with_nodes <- get(paste0('dataset_with_nodes_', i))
+  split <- get(paste0('split_', i))
+  
+  ## Label sequences with new groups
+  dataset_with_nodes$groups <- as.factor(split$groups)
+  
+  ## Reorder labels by time of emergence
+  name_groups <- levels(dataset_with_nodes$groups)
+  time_groups_world <- NULL
+  for (j in 1:length(name_groups)) {
+    time_groups_world <- c(
+      time_groups_world, 
+      min(dataset_with_nodes$time[which(dataset_with_nodes$groups == name_groups[j] & 
+                                        dataset_with_nodes$is.node == 'no')])
+    )
+  }
+  
+  ## Update group levels
+  levels(dataset_with_nodes$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+  dataset_with_nodes$groups <- as.numeric(as.character(dataset_with_nodes$groups))
+  dataset_with_nodes$groups <- as.factor(dataset_with_nodes$groups)
+  
+  ## Update names in the split list
+  split$tip_and_nodes_groups <- match(split$tip_and_nodes_groups, order(time_groups_world, decreasing = TRUE))
+  names(split$tip_and_nodes_groups) <- 1:length(split$tip_and_nodes_groups)
+  split$groups <- as.factor(split$groups)
+  levels(split$groups) <- match(name_groups, order(time_groups_world, decreasing = TRUE))
+  split$groups <- as.numeric(as.character(split$groups))
+  
+  ## Choose color palette
+  n_groups <- length(name_groups)
+  colors_groups <- met.brewer(name = "Cross", n = n_groups, type = "continuous")
+  
+  ## Color each group
+  dataset_with_nodes$group_color <- dataset_with_nodes$groups
+  levels(dataset_with_nodes$group_color) <- colors_groups
+  dataset_with_nodes$group_color <- as.character(dataset_with_nodes$group_color)
+  
+  ## Dynamically save group names and colors for this iteration
+  assign(paste0('name_groups_', i), name_groups)
+  assign(paste0('colors_groups_', i), colors_groups)
+  
+  ## Save the updated variables dynamically
+  assign(paste0('dataset_with_nodes_', i), dataset_with_nodes)
+  assign(paste0('split_', i), split)
+  assign(paste0('colors_groups_', i), colors_groups)
+}
+```
+
+
+#load in old data res_fitness
+```{r load in old data}
+# Assume: 
+serotypes <- list(
+  DENV1 = list(dataset = dataset_with_nodes_1, tree = tree_DENV1),
+  DENV2 = list(dataset = dataset_with_nodes_2, tree = tree_DENV2),
+  DENV3 = list(dataset = dataset_with_nodes_3, tree = tree_DENV3),
+  DENV4 = list(dataset = dataset_with_nodes_4, tree = tree_DENV4)
+)
+
+min_year_model <- 1985
+# Assume: min_year_model is defined (same as when saving files)
+
+results <- list()  # Reinitialize results
+
+for (i in seq_along(serotypes)) {
+  serotype_name <- names(serotypes)[i]
+  cat("Loading saved results for", serotype_name, "\n")
+
+  # Load from previously saved RDS files
+  res_no_bp <- readRDS(paste0("4_Output_Data/Old_Data/", serotype_name, "_no_bp_", min_year_model, ".rds"))
+  res_bps   <- readRDS(paste0("4_Output_Data/Old_Data/", serotype_name, "_bps_", min_year_model, ".rds"))
+  loo_df    <- readRDS(paste0("4_Output_Data/Old_Data/", serotype_name, "_loo_df.rds"))
+
+  # Re-identify best breakpoint year
+  best_year <- loo_df %>%
+    filter(elpd_diff == max(elpd_diff, na.rm = TRUE)) %>%
+    pull(breakpoint_num)
+
+  # Store in results using original structure
+  results[[serotype_name]] <- list(
+    loo_df = loo_df,
+    best_year = best_year,
+    res_no_bp = res_no_bp,
+    res_bps = res_bps
+  )
+}
+```
+
+## Overview of plotting functions
+There are a number of plotting functions in 2_3_Lineage_fitness.R
+
+### plot_fit_data()
+
+Purpose: Plot modeled lineage frequency trajectories over time with 95%
+credible ribbons, overlaid with observed multinomial proportions and
+CIs. What it plots Solid line: posterior mean predicted proportion for
+each lineage over time. Shaded ribbon: credible interval for predicted
+proportions (from posterior draws). Points + vertical bars: observed
+multinomial proportion and CI at each time. Signature
+plot_fit_data(data, Chains, colour_lineage)
+
+**Arguments**
+
+-   data: list-like with
+
+    -   t (numeric, length N): time in years (x-axis)
+
+    -   Y (N × K matrix): counts per time (rows) and lineage (cols)
+
+    -   N (int): number of time points
+
+    -   K (int): number of lineages
+
+-   Chains: list-like with
+
+    -   lp\_\_ (numeric vector, length = posterior draws)
+
+    -   theta (iter × K × N array): per-draw soft assignments
+        (pre-softmax) or logits
+
+-   colour_lineage: vector of length K with plotting colors.
+
+### plot_fit_data_new()
+
+Same as plot_fit_data(), but plots on a user-specified x-range and uses
+predicted proportions from `Chains$theta_new` indexed by `data$N_new`
+and times `data$t_new` from the breakpoint models
+
+### plot_fit_data_per_group()
+
+Purpose: Small-multiples: one panel per lineage (K panels). Each panel
+shows that lineage’s predicted trajectory + CI ribbon and its observed
+multinomial proportion + CI.
+
+**Arguments** Same as `plot_fit_data()` series Creates a fresh plot
+(base device) inside the loop for each lineage i.
+
+### plot_fit_data_selected()
+
+Purpose: Plot modeled trajectories (with ribbons) and observed
+multinomial proportions only for a subset of lineages, masking times
+before lineage birth. Uses `Chains$theta_new` / `data$t_new`
+predictions, but plots only where `t_new` \>= `t_start[i]`.
+
+**Arguments** As in `plot_fit_data_new()`, plus - `t_start` (numeric,
+length K) in `data`: lineage birth time per lineage. - `selected`
+(integer vector): indices of lineages to draw.
+
+### plot_fitness_values()
+
+Purpose: Plot relative fitness per generation (on a log y-scale) for
+each lineage with CIs, plus a reference value of 1. - Points (pch=16) at
+1:K and an extra reference point at K+1 fixed at 1. - Vertical CI bars
+for each lineage. - Horizontal dashed line at 1.
+
+**Relative Index Computation**
+
+-   betas \<- `apply(exp(Chains$beta * gentime), 2, mean.and.ci)`
+
+-   i.e., exponentiated fitness per generation, scaled by generation
+    time)
+
+**Arguments**
+
+-   `beta` in `Chains`: matrix/array of per-draw fitness coefficients by
+    lineage (columns).
+
+-   `gentime` (numeric): multiply beta by generation time before
+    exponentiation.
+
+-   `colour_lineage`: vector of colors (length K).
+
+### plot_estimated_fitness_ref_ancestral()
+
+**Purpose**: Plot **raw (non-exponentiated)** relative fitness estimates
+vs an ancestral reference (0), with CIs.
+
+-   Points (pch=16) at `1:K` with mean fitness (scaled by `gentime` but
+    **not** exponentiated).
+
+-   CI bars per lineage, horizontal reference line at 0.
+
+-   X-axis shows `1:(K+1)` with the final position corresponding to the
+    reference (0).
+
+**Computation**
+
+-   `betas <- apply(Chains$beta * gentime, 2, mean.and.ci)`
+
+### plot_estimated_fitness_ref_ancestral_breakpoint()
+
+**Purpose**: Visualize **pre- vs post-breakpoint** raw relative fitness
+( vs ancestral reference 0) for each lineage, side-by-side jittered
+along x.
+
+-   For each lineage (x position i):
+
+    -   **Pre-breakpoint** mean+CI (pch=16) at `i - 0.05`.
+
+    -   **Post-breakpoint** mean+CI (pch=17) at `i + 0.05`.
+
+-   Horizontal reference at 0, legend distinguishing pre/post.
+
+**Computation**
+
+-   `beta_pre <- Chains$beta_pre * gentime`
+
+-   `beta_post <- Chains$beta_post * gentime`
+
+-   `mean.and.ci` applied columnwise; a reference (0) is appended.
+
+### plot_observed_vs_predicted()
+
+**Purpose**: Calibration plot comparing **observed** multinomial
+proportions vs **posterior predicted means** across time for each
+lineage.
+
+-   For each lineage: points of `(observed, predicted)` with 45°
+    reference line.
+
+-   Observed = Bayesian binomial proportions per time point using
+    `binom::binom.confint(method = "bayes")` (central).
+
+-   Predicted = posterior mean of `softmax(theta)` per time.
+
+## Plot the fits and estimated parameters
+
+
+```{r}
+for (i in 1:4) {
+  # Retrieve relevant variables
+  split <- get(paste0('split_', i))
+  res_fitness <- get(paste0('res_fitness_', i))
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i))
+  
+  # Order colors dynamically
+  order_colors <- order(as.numeric(split$tip_and_nodes_groups))
+  assign(paste0('order_colors_', i), order_colors)
+  
+  # Assign lineage colors dynamically
+  colour_lineage <- colors_groups[match(split$tip_and_nodes_groups[order_colors], name_groups)]
+  assign(paste0('colour_lineage_', i), colour_lineage)
+  
+  png(filename = glue("3_Output_Figures/3_5_DENV/3_5_2_Figure 2/Fitness_plot_DENV_{i}_{st}_min_year_{min_year_model}.png"), width = 1600, height = 1400, res = 300)
+  
+  # Plot fitness data
+  plot_fit_data_new(
+    data = res_fitness$data,
+    Chains = res_fitness$chains,
+    colour_lineage = colour_lineage,
+    xmin = min_year_model, 
+    xmax = max_year_model
+  )
+  
+  # Add legend
+  legend(
+    'topright', 
+    legend = name_groups,
+    fill = colour_lineage, 
+    border = colour_lineage,
+    cex = 0.5, bty = 'n', ncol = 5
+  )
+  
+  # Close the PNG device
+  dev.off()
+}
+
+## Best year model
+
+for (i in 1:4) {
+  serotype_name <- paste0("DENV", i)
+
+# Extract all results for this serotype
+  res_bps <- results[[serotype_name]]$res_bps
+  loo_df <- results[[serotype_name]]$loo_df
+
+  # Get best breakpoint year (exclude 2030)
+  best_year <- loo_df %>%
+    filter(breakpoint_num != 2030) %>%
+    slice_max(elpd_diff, n = 1, with_ties = FALSE) %>%
+    pull(breakpoint)
+  
+  assign(paste0('best_year_', i), best_year)
+
+  # Confirm it's a character and matches res_bps keys
+  if (!best_year %in% names(res_bps)) {
+    stop(paste("Breakpoint", best_year, "not found in res_bps for", serotype_name))
+  }
+
+  res_fit <- res_bps[[best_year]]
+  assign(paste0('res_fitness_best_year_', i), res_fit)
+
+  # Retrieve plotting variables
+  split <- get(paste0('split_', i))
+  name_groups <- get(paste0('name_groups_', i))
+  colors_groups <- get(paste0('colors_groups_', i))
+  order_colors <- get(paste0('order_colors_', i))
+  colour_lineage <- get(paste0('colour_lineage_', i))
+
+  # Define actual xmin/xmax from model results
+  xmin_actual <- max(min_year, min(res_fit$data$t, na.rm = TRUE))
+  xmax_actual <- max(res_fit$data$t, na.rm = TRUE)
+
+  # Plot
+  png(filename = paste0("3_Output_Figures/fitness_plot_DENV_", i, "_bp_", best_year, "_min_year_", min_year_model, ".png"), width = 1600, height = 1400, res = 300)
+
+  plot_fit_data_new(
+    data = res_fit$data,
+    Chains = res_fit$chains,
+    colour_lineage = colour_lineage,
+    xmin = xmin_actual,
+    xmax = xmax_actual
+  )
+
+  legend(
+    'topright',
+    legend = name_groups,
+    fill = colour_lineage,
+    border = colour_lineage,
+    cex = 0.5, bty = 'n', ncol = 5
+  )
+
+  dev.off()
+}
+```
 
 
 Plot specific lineages separately
@@ -52,7 +543,7 @@ for (i in 1:4) {
 }
 ```
 
-Plot lineages seperantely on 1 plot
+Plot lineages separately on 1 plot
 ```{r lineage plot combined}
 for (i in 1:4) {
   split         <- get(paste0('split_', i))
